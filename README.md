@@ -1,5 +1,7 @@
 # ApiLogKit (Android)
 
+[![](https://jitpack.io/v/henrydavl/ApiLogKit-Android.svg)](https://jitpack.io/#henrydavl/ApiLogKit-Android)
+
 An in-app API log inspector for Android, written in Jetpack Compose — the Android counterpart of
 [ApiLogKit for iOS](https://github.com/henrydavl/ApiLogKit). It records HTTP request/response logs
 (plus analytics events such as an EventTracker) and presents them in a debug UI with:
