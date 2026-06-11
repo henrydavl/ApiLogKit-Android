@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Normal permission (auto-granted): a short haptic tick when shake opens the inspector. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <application>
+        <!--
+            The inspector is launched standalone (e.g. on shake) so XML-only host
+            apps need no Compose. excludeFromRecents keeps it out of the recents
+            stack; it is a debug overlay, not a primary app screen.
+        -->
+        <activity
+            android:name=".ui.ApiLogActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:label="API Logs"
+            android:theme="@style/Theme.ApiLogKit" />
+    </application>
+
+</manifest>

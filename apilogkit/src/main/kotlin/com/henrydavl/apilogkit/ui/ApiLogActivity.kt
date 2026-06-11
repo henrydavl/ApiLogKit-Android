@@ -1,0 +1,55 @@
+package com.henrydavl.apilogkit.ui
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.henrydavl.apilogkit.model.ApiLog
+import com.henrydavl.apilogkit.model.ApiLogger
+import com.henrydavl.apilogkit.model.LogEventType
+import com.henrydavl.apilogkit.ui.detail.ApiLogDetailScreen
+import com.henrydavl.apilogkit.ui.list.ApiLogListScreen
+import com.henrydavl.apilogkit.ui.theme.ApiLogTheme
+
+/**
+ * Standalone host for the inspector — the Android counterpart of iOS's
+ * `ApiLogHostingController`. Launched on shake or manually
+ * ([com.henrydavl.apilogkit.ApiLogInspector.launch]); because it is its own
+ * Activity, XML-only host apps need no Compose of their own.
+ */
+class ApiLogActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Snapshot the logs once when the inspector opens (matches iOS, which is
+        // constructed with `getLogs()`).
+        val logs = ApiLogger.getLogs()
+
+        setContent {
+            ApiLogTheme {
+                var selected by remember { mutableStateOf<Pair<ApiLog, LogEventType>?>(null) }
+
+                if (selected == null) {
+                    ApiLogListScreen(
+                        logs = logs,
+                        onOpenDetail = { log, type -> selected = log to type },
+                        onClose = { finish() },
+                    )
+                } else {
+                    BackHandler { selected = null }
+                    val (log, type) = selected!!
+                    ApiLogDetailScreen(
+                        log = log,
+                        logType = type,
+                        onBack = { selected = null },
+                    )
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Bare window theme for the inspector activity. Colors and surfaces are
+        drawn by Compose (ApiLogTheme); this only needs to be a valid, no-action-bar
+        Android theme. A values-night variant gives a dark window background.
+    -->
+    <style name="Theme.ApiLogKit" parent="@android:style/Theme.Material.Light.NoActionBar" />
+</resources>
