@@ -33,9 +33,10 @@ maven { url = uri("https://jitpack.io") }
 ```
 
 ```kotlin
-// app/build.gradle.kts
+// app/build.gradle.kts — NOTE the multi-module coordinate:
+// group is com.github.<user>.<repo>, artifact is the module name (apilogkit).
 dependencies {
-    implementation("com.github.henrydavl:ApiLogKit-Android:<tag>")
+    implementation("com.github.henrydavl.ApiLogKit-Android:apilogkit:<tag>")
 
     // Only if you use the OkHttp interceptor (ApiLogKit declares OkHttp as compileOnly):
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

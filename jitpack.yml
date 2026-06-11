@@ -1,0 +1,7 @@
+# JitPack build configuration.
+# AGP 8.7 requires JDK 17, but JitPack defaults to an older JDK — pin it here,
+# and publish only the library module (the :sample app is not an artifact).
+jdk:
+  - openjdk17
+install:
+  - ./gradlew :apilogkit:publishToMavenLocal

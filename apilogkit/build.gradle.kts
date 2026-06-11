@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    `maven-publish`
 }
 
 android {
@@ -32,7 +33,28 @@ android {
         compose = true
     }
 
+    // Required for JitPack / Maven publishing of an Android library: expose the
+    // `release` variant as a publishable component (with a sources jar).
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+        }
+    }
+
     sourceSets["main"].java.srcDir("src/main/kotlin")
+}
+
+// JitPack injects the real groupId (com.github.<user>.<repo>) and version (the
+// git tag); we just register the publication from the `release` component.
+publishing {
+    publications {
+        register<MavenPublication>("release") {
+            afterEvaluate {
+                from(components["release"])
+            }
+            artifactId = "apilogkit"
+        }
+    }
 }
 
 dependencies {
