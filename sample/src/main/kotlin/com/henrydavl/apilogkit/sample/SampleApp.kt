@@ -19,6 +19,8 @@ class SampleApp : Application() {
         super.onCreate()
 
         // Gate recording on debug builds, then enable shake-to-open.
+        // The Chucker-style notification is ON by default (no call needed);
+        // toggle it with ApiLogger.notificationsEnabled = false.
         ApiLogger.isEnabled = BuildConfig.DEBUG
         ApiLogger.enableShakeToOpen(this)
 

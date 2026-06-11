@@ -4,16 +4,34 @@
     <!-- Normal permission (auto-granted): a short haptic tick when shake opens the inspector. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Runtime permission (Android 13+) for the optional Chucker-style log notification.
+         Declared so it's available when enableNotifications() is used; the host must
+         still request it at runtime on API 33+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application>
         <!--
             The inspector is launched standalone (e.g. on shake) so XML-only host
             apps need no Compose. excludeFromRecents keeps it out of the recents
             stack; it is a debug overlay, not a primary app screen.
         -->
+        <!--
+            Auto-starts before Application.onCreate to capture the app context, so the
+            default-on log notification works with no host setup. ${applicationId} keeps
+            the authority unique per app. Not exported; serves no data.
+        -->
+        <provider
+            android:name=".ApiLogInitProvider"
+            android:authorities="${applicationId}.apilogkit-init"
+            android:exported="false"
+            android:grantUriPermissions="false"
+            android:initOrder="100" />
+
         <activity
             android:name=".ui.ApiLogActivity"
             android:exported="false"
             android:excludeFromRecents="true"
+            android:launchMode="singleTop"
             android:label="API Logs"
             android:theme="@style/Theme.ApiLogKit" />
     </application>

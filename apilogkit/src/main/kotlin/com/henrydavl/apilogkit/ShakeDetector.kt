@@ -16,11 +16,17 @@ import android.os.VibratorManager
 import com.henrydavl.apilogkit.model.ApiLogger
 import com.henrydavl.apilogkit.ui.ApiLogActivity
 import java.lang.ref.WeakReference
-import kotlin.math.sqrt
 
 /**
  * Opens the log inspector on a device shake, from any screen, with no host
  * boilerplate — the Android counterpart of the iOS `ShakeDetector`.
+ *
+ * Detection uses a **windowed** algorithm (the approach popularised by Square's
+ * Seismic) rather than a single-sample threshold: the accelerometer is sampled
+ * quickly and a shake is reported only when most samples over a short window
+ * exceed a gentle threshold. This makes a deliberate shake fire *consistently*
+ * while ignoring incidental bumps — a single fast jerk between slow samples can
+ * no longer be missed, and a lone noisy spike can no longer false-trigger.
  *
  * Where iOS swizzles `UIApplication.sendEvent`, here we track the foreground
  * Activity via [Application.ActivityLifecycleCallbacks] and listen to the
@@ -28,15 +34,20 @@ import kotlin.math.sqrt
  */
 internal object ShakeDetector : SensorEventListener {
 
-    private const val SHAKE_THRESHOLD_GRAVITY = 2.7f
-    private const val SHAKE_COOLDOWN_MS = 1_000L
+    /**
+     * Per-sample acceleration magnitude threshold, in m/s². ~13 ≈ 1.3g (gravity
+     * at rest is ~9.81). The window check below — not this value — is what keeps
+     * accidental triggers out, so this can stay gentle for reliable shakes.
+     */
+    private const val ACCELERATION_THRESHOLD = 13
 
     private var installed = false
     private var sensorManager: SensorManager? = null
     private var accelerometer: Sensor? = null
     // WeakReference so the static singleton never pins an Activity in memory.
     private var currentActivity: WeakReference<Activity>? = null
-    private var lastShakeTime = 0L
+
+    private val queue = SampleQueue()
 
     fun install(application: Application) {
         if (installed) return
@@ -72,30 +83,38 @@ internal object ShakeDetector : SensorEventListener {
     private fun startListening() {
         val manager = sensorManager ?: return
         val sensor = accelerometer ?: return
-        manager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+        queue.clear()
+        // GAME delay (~20ms) gives enough samples per window to detect a shake
+        // reliably; NORMAL (~200ms) is too coarse and misses peaks.
+        manager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
     }
 
     private fun stopListening() {
         sensorManager?.unregisterListener(this)
+        queue.clear()
     }
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ACCELEROMETER) return
 
-        val gX = event.values[0] / SensorManager.GRAVITY_EARTH
-        val gY = event.values[1] / SensorManager.GRAVITY_EARTH
-        val gZ = event.values[2] / SensorManager.GRAVITY_EARTH
-        val gForce = sqrt(gX * gX + gY * gY + gZ * gZ)
+        val accelerating = isAccelerating(event)
+        queue.add(event.timestamp, accelerating)
 
-        if (gForce > SHAKE_THRESHOLD_GRAVITY) {
-            val now = System.currentTimeMillis()
-            if (now - lastShakeTime < SHAKE_COOLDOWN_MS) return
-            lastShakeTime = now
+        if (queue.isShaking) {
+            queue.clear()
             handleShake()
         }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private fun isAccelerating(event: SensorEvent): Boolean {
+        val ax = event.values[0].toDouble()
+        val ay = event.values[1].toDouble()
+        val az = event.values[2].toDouble()
+        val magnitudeSquared = ax * ax + ay * ay + az * az
+        return magnitudeSquared > ACCELERATION_THRESHOLD.toDouble() * ACCELERATION_THRESHOLD
+    }
 
     private fun handleShake() {
         if (!ApiLogger.isEnabled) return
@@ -123,6 +142,51 @@ internal object ShakeDetector : SensorEventListener {
             }
         } catch (_: Exception) {
             // Vibration is best-effort; ignore if unavailable or not permitted.
+        }
+    }
+
+    /**
+     * A short sliding window of recent samples. A shake is reported when the
+     * window spans at least [MIN_WINDOW_SIZE] and at least ~75% of its samples
+     * were "accelerating". Timestamps are the sensor event's nanosecond clock.
+     */
+    private class SampleQueue {
+        private data class Sample(val timestamp: Long, val accelerating: Boolean)
+
+        private val samples = ArrayDeque<Sample>()
+        private var acceleratingCount = 0
+
+        fun add(timestamp: Long, accelerating: Boolean) {
+            purge(timestamp - MAX_WINDOW_SIZE)
+            samples.addLast(Sample(timestamp, accelerating))
+            if (accelerating) acceleratingCount++
+        }
+
+        fun clear() {
+            samples.clear()
+            acceleratingCount = 0
+        }
+
+        val isShaking: Boolean
+            get() {
+                val oldest = samples.firstOrNull() ?: return false
+                val newest = samples.lastOrNull() ?: return false
+                if (newest.timestamp - oldest.timestamp < MIN_WINDOW_SIZE) return false
+                // acceleratingCount >= 75% of the window (size/2 + size/4).
+                return acceleratingCount >= (samples.size shr 1) + (samples.size shr 2)
+            }
+
+        private fun purge(cutoff: Long) {
+            while (samples.size >= MIN_QUEUE_SIZE && samples.first().timestamp < cutoff) {
+                val removed = samples.removeFirst()
+                if (removed.accelerating) acceleratingCount--
+            }
+        }
+
+        private companion object {
+            const val MAX_WINDOW_SIZE = 500_000_000L // 0.5s in nanoseconds
+            const val MIN_WINDOW_SIZE = 250_000_000L // 0.25s in nanoseconds
+            const val MIN_QUEUE_SIZE = 4
         }
     }
 }

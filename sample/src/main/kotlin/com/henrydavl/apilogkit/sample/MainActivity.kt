@@ -1,8 +1,13 @@
 package com.henrydavl.apilogkit.sample
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.henrydavl.apilogkit.ApiLogInspector
 import com.henrydavl.apilogkit.model.ApiLog
 import com.henrydavl.apilogkit.model.ApiLogger
@@ -26,16 +31,31 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private val client get() = (application as SampleApp).httpClient
 
+    // Required on Android 13+ for the Chucker-style log notification to appear.
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        requestNotificationPermissionIfNeeded()
 
         binding.btnGet.setOnClickListener { sendGet() }
         binding.btnPost.setOnClickListener { sendPost() }
         binding.btnManual.setOnClickListener { addManualLog() }
         binding.btnEvent.setOnClickListener { logEvent() }
         binding.btnOpen.setOnClickListener { ApiLogInspector.launch(this) }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     private fun sendGet() {

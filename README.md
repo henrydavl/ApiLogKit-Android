@@ -103,6 +103,18 @@ class MyApp : Application() {
 ApiLogInspector.launch(context)
 ```
 
+**Notification (Chucker-style)** — an ongoing notification summarises captured requests and opens
+the inspector on tap. It is **on by default** (no setup needed — the library captures the app
+context automatically at startup). Toggle it any time:
+
+```kotlin
+ApiLogger.notificationsEnabled = false   // suppress; set true to restore
+```
+
+It only posts when `ApiLogger.isEnabled` is true, and on Android 13+ only once `POST_NOTIFICATIONS`
+is granted — request it from your app (the library declares the permission and never crashes if it
+isn't granted).
+
 ### 3. Optional configuration
 
 ```kotlin
