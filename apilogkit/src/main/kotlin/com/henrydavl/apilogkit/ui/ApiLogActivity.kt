@@ -1,9 +1,11 @@
 package com.henrydavl.apilogkit.ui
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +27,13 @@ class ApiLogActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // The inspector is light-only: give it a light status bar (white background
+        // with dark icons) so the icons stay visible on the light UI, regardless of
+        // the host app's dark-mode setting. isAppearanceLightStatusBars = true means
+        // "dark icons" and is supported on API 24+.
+        window.statusBarColor = Color.WHITE
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = true
 
         // Snapshot the logs once when the inspector opens (matches iOS, which is
         // constructed with `getLogs()`).

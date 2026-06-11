@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.ApiLogKit" parent="@android:style/Theme.Material.NoActionBar" />
+    <!-- Light-only: even in system dark mode the inspector window stays light. -->
+    <style name="Theme.ApiLogKit" parent="@android:style/Theme.Material.Light.NoActionBar" />
 </resources>
