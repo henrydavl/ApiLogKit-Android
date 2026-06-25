@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -45,12 +46,14 @@ import com.henrydavl.apilogkit.util.ShareUtils
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ApiLogListScreen(
-    logs: List<ApiLog>,
+    viewModel: ApiLogListViewModel,
+    listState: LazyListState,
     onOpenDetail: (ApiLog, LogEventType) -> Unit,
     onClose: () -> Unit,
 ) {
+    // viewModel and listState are hoisted by the host (ApiLogActivity) so search
+    // text and scroll position survive navigating into a detail and back.
     val context = LocalContext.current
-    val viewModel = remember(logs) { ApiLogListViewModel(logs) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
 
@@ -90,6 +93,7 @@ fun ApiLogListScreen(
             )
 
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 6.dp),
             ) {

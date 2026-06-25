@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -15,6 +16,7 @@ import com.henrydavl.apilogkit.model.ApiLogger
 import com.henrydavl.apilogkit.model.LogEventType
 import com.henrydavl.apilogkit.ui.detail.ApiLogDetailScreen
 import com.henrydavl.apilogkit.ui.list.ApiLogListScreen
+import com.henrydavl.apilogkit.ui.list.ApiLogListViewModel
 import com.henrydavl.apilogkit.ui.theme.ApiLogTheme
 
 /**
@@ -41,11 +43,17 @@ class ApiLogActivity : ComponentActivity() {
 
         setContent {
             ApiLogTheme {
+                // Hoisted above the list/detail switch so the list's search text and
+                // scroll position survive opening a detail and pressing back (the
+                // list composable leaves composition while the detail is shown).
+                val listViewModel = remember { ApiLogListViewModel(logs) }
+                val listState = rememberLazyListState()
                 var selected by remember { mutableStateOf<Pair<ApiLog, LogEventType>?>(null) }
 
                 if (selected == null) {
                     ApiLogListScreen(
-                        logs = logs,
+                        viewModel = listViewModel,
+                        listState = listState,
                         onOpenDetail = { log, type -> selected = log to type },
                         onClose = { finish() },
                     )
