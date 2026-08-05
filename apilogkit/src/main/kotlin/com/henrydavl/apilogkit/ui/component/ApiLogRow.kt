@@ -79,12 +79,33 @@ fun ApiLogRow(log: ApiLog, logType: LogEventType, modifier: Modifier = Modifier)
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp),
             )
-            Text(
-                text = log.date.apiLogFormatted(),
-                color = MaterialTheme.colorScheme.outline,
-                fontSize = 11.sp,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(top = 4.dp),
-            )
+            ) {
+                Text(
+                    text = log.date.apiLogFormatted(),
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = 11.sp,
+                )
+                // Only ever true when the host opted into disk persistence; marks
+                // an entry restored from an earlier run of the app.
+                if (log.fromPreviousSession) {
+                    Text(
+                        text = "EARLIER SESSION",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(
+                                MaterialTheme.colorScheme.outlineVariant,
+                                RoundedCornerShape(4.dp),
+                            )
+                            .padding(horizontal = 5.dp, vertical = 2.dp),
+                    )
+                }
+            }
         }
     }
 }

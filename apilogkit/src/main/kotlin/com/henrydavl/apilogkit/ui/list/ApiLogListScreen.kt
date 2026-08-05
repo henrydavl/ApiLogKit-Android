@@ -1,10 +1,14 @@
 package com.henrydavl.apilogkit.ui.list
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -14,6 +18,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -34,13 +40,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.henrydavl.apilogkit.ApiLogKitConfig
 import com.henrydavl.apilogkit.model.ApiLog
 import com.henrydavl.apilogkit.model.LogEventType
 import com.henrydavl.apilogkit.ui.component.ApiLogRow
+import com.henrydavl.apilogkit.ui.theme.ApiLogColors
 import com.henrydavl.apilogkit.util.ShareUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,6 +77,16 @@ fun ApiLogListScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = viewModel::togglePause) {
+                        Icon(
+                            if (viewModel.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                            contentDescription = if (viewModel.isPaused) {
+                                "Resume live logs"
+                            } else {
+                                "Pause live logs"
+                            },
+                        )
+                    }
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "Menu")
                     }
@@ -92,12 +112,23 @@ fun ApiLogListScreen(
                 singleLine = true,
             )
 
+            // Shown while paused so the list is never silently stale.
+            if (viewModel.isPaused) {
+                PausedBanner(
+                    pendingCount = viewModel.pendingCount,
+                    onResume = viewModel::togglePause,
+                )
+            }
+
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 6.dp),
             ) {
-                items(viewModel.items) { log ->
+                // Keyed on the log's stable id: without it LazyColumn falls back to
+                // the index, and because new logs land at the top every arrival
+                // re-keys the visible rows and jolts the scroll position.
+                items(viewModel.items, key = { it.id }) { log ->
                     ApiLogRow(
                         log = log,
                         logType = viewModel.logType,
@@ -125,6 +156,35 @@ fun ApiLogListScreen(
                 TextButton(onClick = { showClearConfirm = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/** Banner surfacing that the live stream is held, and what is waiting behind it. */
+@Composable
+private fun PausedBanner(
+    pendingCount: Int,
+    onResume: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(ApiLogColors.PausedBannerBackground)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.Pause,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = if (pendingCount > 0) "Paused — $pendingCount new" else "Paused",
+            fontSize = 12.sp,
+            modifier = Modifier.padding(start = 6.dp).weight(1f),
+        )
+        TextButton(onClick = onResume, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            Text("Resume", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 

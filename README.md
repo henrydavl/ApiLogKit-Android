@@ -7,6 +7,8 @@ An in-app API log inspector for Android, written in Jetpack Compose — the Andr
 (plus analytics events such as an EventTracker) and presents them in a debug UI with:
 
 - 📋 Log list with URL search, status-code badges, newest-first ordering
+- ⚡ **Live list** — requests appear as they happen, with a pause button so reading a log isn't
+  disturbed by incoming traffic
 - 🌳 Interactive JSON viewer — collapsible objects/arrays with child counts, type-colored values,
   tap-to-expand long strings (base64-safe), expand/collapse all
 - 📝 Tree ⇄ pretty-JSON text toggle per body section
@@ -16,6 +18,8 @@ An in-app API log inspector for Android, written in Jetpack Compose — the Andr
 - 📳 Shake to open — one-line setup, works from any screen, no boilerplate
 - 🔌 Drop-in **OkHttp interceptor** for automatic capture (a Chucker replacement), plus a manual
   API that mirrors iOS
+- 💾 Optional disk persistence — logs survive the app being killed, so you can export or compare
+  them on a later launch
 
 It is designed to be the **same inspector on both platforms**: the data model, export formats, and
 UX match the iOS library so behavior is consistent across Android and iOS.
@@ -115,7 +119,104 @@ It only posts when `ApiLogger.isEnabled` is true, and on Android 13+ only once `
 is granted — request it from your app (the library declares the permission and never crashes if it
 isn't granted).
 
-### 3. Optional configuration
+### 3. Live updates and pause
+
+The list is reactive. `ApiLogger` publishes its buckets as `StateFlow`s — the Android counterpart of
+the Combine publishers on iOS — so requests captured while the inspector is open appear immediately;
+no closing and reopening to see new traffic.
+
+Because a busy app can push rows past you while you're reading, the toolbar has a **pause** button.
+While paused the logger keeps collecting, the list simply stops refreshing, and a banner shows how
+many entries are waiting:
+
+```
+⏸  Paused — 12 new                              Resume
+```
+
+Resuming folds them all in at once. Search is debounced by 250 ms, so typing filters once rather than
+on every keystroke.
+
+You can observe the same streams from your own code:
+
+```kotlin
+lifecycleScope.launch {
+    ApiLogger.logsFlow.collect { logs -> /* … */ }
+}
+```
+
+Both flows replay their current value on collection, so a fresh collector fills straight away.
+
+### 4. `ApiLogKitConfig.Persistence` — keep logs across app restarts (optional)
+
+By default logs live in memory only and are gone once the host process dies — matching iOS. Opt into
+disk persistence and they are mirrored to an app-private SQLite database and read back on the next
+launch, so you can still export them, or compare an old response against a later call to the same
+endpoint.
+
+**Enable it once, at startup:**
+
+```kotlin
+class MyApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+
+        if (BuildConfig.DEBUG) {
+            ApiLogKitConfig.persistence = ApiLogKitConfig.Persistence(maxEntries = 500)
+        }
+    }
+}
+```
+
+That single line is the whole setup — no database to create, no permissions, no extra dependency.
+
+**The parameter:**
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `maxEntries` | `500` | How many of the newest entries to keep on disk, counted **separately** for API logs and EventTracker logs. Older rows are pruned automatically. |
+
+Restored entries are also held in memory, so a very large cap combined with large response bodies
+costs heap on the next launch. `ApiLogKitConfig.Persistence.DEFAULT_MAX_ENTRIES` exposes the default
+if you want to reference it.
+
+**Turning it off:**
+
+```kotlin
+ApiLogKitConfig.persistence = null   // stops writing; keeps what is already stored
+ApiLogger.clearLogs()                // wipes memory and disk together
+```
+
+**From Java, or without the config object:**
+
+```java
+ApiLogger.INSTANCE.enablePersistence(context, 500);
+ApiLogger.INSTANCE.disablePersistence();
+```
+
+`ApiLogger.enablePersistence(context, maxEntries)` is the explicit equivalent — useful if your app
+strips `ApiLogInitProvider` and so has no automatically captured `Application` context. You can also
+read `ApiLogger.isPersistenceEnabled` to check the current state.
+
+**What to expect:**
+
+- Entries from earlier runs are labelled **EARLIER SESSION** in the list, so previous runs stay
+  distinguishable from the current one. They load in the background and appear without reopening
+  the inspector.
+- Everything is opt-in and off by default, so upgrading changes nothing until you set the flag.
+- All database work runs on a background thread and is best-effort; a failed write never surfaces to
+  your app.
+- It is plain `SQLiteOpenHelper`, **not Room** — a debug library shouldn't drag androidx.room and KSP
+  onto your classpath.
+- The database is dropped and recreated on schema upgrades. Debug logs are disposable.
+
+> ⚠️ **Leave this off in release builds.** It writes request and response bodies — and therefore any
+> auth tokens or personal data they contain — to app-private storage.
+
+> ℹ️ There is no way to keep ApiLogKit *running* once the host app is killed. A separate process still
+> belongs to the same package, so a force-stop or a swipe from recents takes it down too. Persisting
+> to disk is how logs survive process death.
+
+### 5. Optional configuration
 
 ```kotlin
 // Locale for row timestamps (defaults to the system locale).
@@ -152,9 +253,18 @@ shake-to-open, and an XML Developer Options screen. Run it with:
 
 ## How it compares to iOS
 
-The Android library is a faithful port of the iOS one. The core difference: iOS captures logs
-manually only, while Android additionally ships an `ApiLogInterceptor` for OkHttp (the idiomatic
-auto-capture path that replaces Chucker). Storage is in-memory on both platforms and cleared onprocess death.
+The Android library is a faithful port of the iOS one, including the live list: iOS backs its store
+with Combine `CurrentValueSubject`s, Android with `StateFlow`, and both replay their current value so
+a freshly opened inspector fills immediately. Pause/resume, the pending-count banner and the 250 ms
+search debounce behave the same on both.
+
+Two Android-only additions: an `ApiLogInterceptor` for OkHttp (the idiomatic auto-capture path that
+replaces Chucker; iOS captures manually only), and opt-in disk persistence. Storage is in-memory on
+both platforms and cleared on process death unless `ApiLogKitConfig.persistence` is set. Export
+formats are identical either way.
+
+Not yet ported from iOS: the **3rd-party tracker** bucket, which captures `URLSession` traffic from
+closed-source SDKs.
 
 ## License
 

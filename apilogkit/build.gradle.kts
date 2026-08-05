@@ -61,6 +61,12 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+
+    // `api` for coroutines-core: ApiLogger exposes StateFlow publicly, so hosts
+    // that observe the log stream need it on their compile classpath.
+    api(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
 
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
@@ -77,6 +83,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.okhttp)
+    testImplementation(libs.kotlinx.coroutines.test)
     // Real org.json on the unit-test classpath (the android.jar stub is non-functional).
     testImplementation(libs.json)
 }

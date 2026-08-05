@@ -11,8 +11,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.henrydavl.apilogkit.model.ApiLog
-import com.henrydavl.apilogkit.model.ApiLogger
 import com.henrydavl.apilogkit.model.LogEventType
 import com.henrydavl.apilogkit.ui.detail.ApiLogDetailScreen
 import com.henrydavl.apilogkit.ui.list.ApiLogListScreen
@@ -37,16 +37,14 @@ class ApiLogActivity : ComponentActivity() {
         window.statusBarColor = Color.WHITE
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = true
 
-        // Snapshot the logs once when the inspector opens (matches iOS, which is
-        // constructed with `getLogs()`).
-        val logs = ApiLogger.getLogs()
-
         setContent {
             ApiLogTheme {
+                // A real ViewModel: it owns the collectors on ApiLogger's flows, so
+                // the list updates live, and it also survives configuration changes.
                 // Hoisted above the list/detail switch so the list's search text and
                 // scroll position survive opening a detail and pressing back (the
                 // list composable leaves composition while the detail is shown).
-                val listViewModel = remember { ApiLogListViewModel(logs) }
+                val listViewModel: ApiLogListViewModel = viewModel()
                 val listState = rememberLazyListState()
                 var selected by remember { mutableStateOf<Pair<ApiLog, LogEventType>?>(null) }
 

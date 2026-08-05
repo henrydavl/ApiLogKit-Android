@@ -28,6 +28,9 @@ object ApiLogColors {
     val bool = Color(0xFF6A1B9A)
     val nullValue = Color(0xFF757575)
     val punctuation = Color(0xFF757575)
+
+    /** Tint for the "live stream paused" banner — amber, matching iOS. */
+    val PausedBannerBackground = Color(0x26FF9800)
 }
 
 private val LightColors = lightColorScheme()

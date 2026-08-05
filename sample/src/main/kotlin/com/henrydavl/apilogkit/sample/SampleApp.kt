@@ -27,6 +27,13 @@ class SampleApp : Application() {
         // Enable the separate analytics ("EventTracker") tab.
         ApiLogger.enableEventTrackerLog(true)
 
+        // Keep logs across app restarts so they can still be exported — or
+        // compared against a later call to the same endpoint — after the process
+        // is killed. Debug-only: this writes request/response bodies to disk.
+        if (BuildConfig.DEBUG) {
+            ApiLogKitConfig.persistence = ApiLogKitConfig.Persistence(maxEntries = 500)
+        }
+
         // Plug the host's own XML-based Developer Options screen into the menu.
         ApiLogKitConfig.developerOptions = ApiLogKitConfig.DeveloperOptions(
             label = "Developer Options",
