@@ -12,7 +12,9 @@ An in-app API log inspector for Android, written in Jetpack Compose — the Andr
 - 🌳 Interactive JSON viewer — collapsible objects/arrays with child counts, type-colored values,
   tap-to-expand long strings (base64-safe), expand/collapse all
 - 📝 Tree ⇄ pretty-JSON text toggle per body section
-- 📤 Export as raw log or ready-to-run cURL command
+- 📤 Export as raw log or ready-to-run cURL command — shared through the native Android share sheet
+  as a `.txt` attachment, with **Copy** and **Save as .txt** alongside it, so multi-megabyte base64
+  bodies export intact
 - 📎 Copy any value, subtree, or section with toast confirmation
 - 🧭 Floating scroll-to-top/bottom buttons on long payloads
 - 📳 Shake to open — one-line setup, works from any screen, no boilerplate
@@ -216,7 +218,41 @@ read `ApiLogger.isPersistenceEnabled` to check the current state.
 > belongs to the same package, so a force-stop or a swipe from recents takes it down too. Persisting
 > to disk is how logs survive process death.
 
-### 5. Optional configuration
+### 5. Exporting a log
+
+Every export route goes through the **native Android share sheet**, with the log attached as a
+timestamped `.txt` file (`raw-log-20260911-143002.txt`).
+
+From a log's detail screen:
+
+| Action | What it does |
+| --- | --- |
+| Share Raw Log / Share cURL Command | Native share sheet, log attached as `.txt` |
+| Copy Raw Log | Straight to the clipboard |
+| Save Raw Log as .txt | System file picker (`ACTION_CREATE_DOCUMENT`) |
+
+The log list's overflow menu has the same pair — **Export** (share) and **Save as .txt** — for the
+whole visible list.
+
+**Why a file and not just text.** `Intent.EXTRA_TEXT` crosses a Binder transaction capped at roughly
+1 MB for the whole transaction, and a single base64 response body can exceed that on its own — which
+fails with `TransactionTooLargeException` and takes the host app down. Attaching a `FileProvider`
+stream removes that ceiling and makes the sheet offer file destinations (Files, Drive, mail
+attachment) next to the usual text targets. Logs under 96 KB are still attached inline as well, so
+messengers, notes and the share sheet's own Copy action on Android 13+ behave normally.
+
+The clipboard is a Binder transaction too, so copying something genuinely huge reports
+*"Too large to copy — use Save as .txt"* rather than silently copying nothing.
+
+**Save as .txt** deliberately uses the system file picker rather than hoping a "Save to Files" target
+appears in the sheet: AOSP's DocumentsUI doesn't register for `ACTION_SEND`, so that target exists on
+some builds and not others. The picker works on every supported API level.
+
+Exports are written to the app's cache and pruned after an hour. ApiLogKit ships its own
+`FileProvider` subclass on a namespaced authority, so it won't collide with one your app already
+declares.
+
+### 6. Optional configuration
 
 ```kotlin
 // Locale for row timestamps (defaults to the system locale).

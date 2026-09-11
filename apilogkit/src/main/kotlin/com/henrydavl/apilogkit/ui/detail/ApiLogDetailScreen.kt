@@ -23,9 +23,14 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Notes
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -77,9 +82,36 @@ fun ApiLogDetailScreen(
     var toastTick by remember { mutableIntStateOf(0) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
     val showCopied: (String) -> Unit = { text ->
-        ShareUtils.copy(context, text)
-        toastMessage = "Copied to clipboard"
+        // A base64-sized value can exceed the clipboard's Binder budget; say so
+        // and point at the file route rather than silently copying nothing.
+        toastMessage = if (ShareUtils.copy(context, text)) {
+            "Copied to clipboard"
+        } else {
+            "Too large to copy — use Save as .txt"
+        }
         toastTick++
+    }
+
+    // Saving goes through the system file picker, which is the one route to
+    // "Files" that exists on every supported API level.
+    var pendingSave by remember { mutableStateOf<String?>(null) }
+    val saveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(MIME_TEXT),
+    ) { uri ->
+        val text = pendingSave
+        pendingSave = null
+        if (uri != null && text != null) {
+            toastMessage = if (ShareUtils.writeTo(context, uri, text)) {
+                "Saved"
+            } else {
+                "Couldn't save file"
+            }
+            toastTick++
+        }
+    }
+    val saveAsTxt: (String, String) -> Unit = { text, prefix ->
+        pendingSave = text
+        saveLauncher.launch(ShareUtils.fileName(prefix))
     }
     LaunchedEffect(toastTick) {
         if (toastTick > 0) {
@@ -111,16 +143,45 @@ fun ApiLogDetailScreen(
                     }
                     DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
                         DropdownMenuItem(
-                            text = { Text("Raw Log") },
+                            text = { Text("Share Raw Log") },
+                            leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
                             onClick = {
-                                ShareUtils.shareText(context, viewModel.exportRawLog())
+                                ShareUtils.shareText(
+                                    context,
+                                    viewModel.exportRawLog(),
+                                    ShareUtils.fileName("raw-log"),
+                                )
                                 exportMenu = false
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("cURL Command") },
+                            text = { Text("Share cURL Command") },
+                            leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
                             onClick = {
-                                ShareUtils.shareText(context, viewModel.exportCurl())
+                                ShareUtils.shareText(
+                                    context,
+                                    viewModel.exportCurl(),
+                                    ShareUtils.fileName("curl"),
+                                )
+                                exportMenu = false
+                            },
+                        )
+
+                        HorizontalDivider()
+
+                        DropdownMenuItem(
+                            text = { Text("Copy Raw Log") },
+                            leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+                            onClick = {
+                                showCopied(viewModel.exportRawLog())
+                                exportMenu = false
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Save Raw Log as .txt") },
+                            leadingIcon = { Icon(Icons.Filled.SaveAlt, contentDescription = null) },
+                            onClick = {
+                                saveAsTxt(viewModel.exportRawLog(), "raw-log")
                                 exportMenu = false
                             },
                         )
@@ -270,3 +331,6 @@ private fun CopyToast(message: String) {
         )
     }
 }
+
+/** MIME type for the exported log document. */
+private const val MIME_TEXT = "text/plain"
