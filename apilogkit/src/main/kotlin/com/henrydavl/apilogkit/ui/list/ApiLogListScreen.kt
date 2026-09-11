@@ -1,5 +1,8 @@
 package com.henrydavl.apilogkit.ui.list
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -20,6 +23,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -67,6 +71,24 @@ fun ApiLogListScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
 
+    // A whole-list export is the most likely thing to be enormous, so offer the
+    // system file picker as well as the share sheet.
+    var pendingSave by remember { mutableStateOf<String?>(null) }
+    val saveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain"),
+    ) { uri ->
+        val text = pendingSave
+        pendingSave = null
+        if (uri != null && text != null) {
+            val message = if (ShareUtils.writeTo(context, uri, text)) {
+                "Saved"
+            } else {
+                "Couldn't save file"
+            }
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -94,7 +116,17 @@ fun ApiLogListScreen(
                         expanded = menuExpanded,
                         viewModel = viewModel,
                         onDismiss = { menuExpanded = false },
-                        onExport = { ShareUtils.shareText(context, viewModel.exportText()) },
+                        onExport = {
+                            ShareUtils.shareText(
+                                context,
+                                viewModel.exportText(),
+                                ShareUtils.fileName("api-logs"),
+                            )
+                        },
+                        onSaveAsTxt = {
+                            pendingSave = viewModel.exportText()
+                            saveLauncher.launch(ShareUtils.fileName("api-logs"))
+                        },
                         onDevOptions = { ApiLogKitConfig.developerOptions?.onSelected?.invoke(context) },
                         onClear = { showClearConfirm = true },
                     )
@@ -194,6 +226,7 @@ private fun LogListMenu(
     viewModel: ApiLogListViewModel,
     onDismiss: () -> Unit,
     onExport: () -> Unit,
+    onSaveAsTxt: () -> Unit,
     onDevOptions: () -> Unit,
     onClear: () -> Unit,
 ) {
@@ -226,6 +259,12 @@ private fun LogListMenu(
             text = { Text("Export") },
             onClick = { onExport(); onDismiss() },
             leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
+        )
+
+        DropdownMenuItem(
+            text = { Text("Save as .txt") },
+            onClick = { onSaveAsTxt(); onDismiss() },
+            leadingIcon = { Icon(Icons.Filled.SaveAlt, contentDescription = null) },
         )
 
         if (viewModel.isDevOptionsEnabled) {

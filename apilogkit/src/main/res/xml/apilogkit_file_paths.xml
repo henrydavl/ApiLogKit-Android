@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Backing directory for exported logs. Exports live in the app's cache so the
+    system can reclaim them, and ApiLogKit prunes stale ones itself.
+-->
+<paths>
+    <cache-path name="apilogkit-exports" path="apilogkit-exports/" />
+</paths>

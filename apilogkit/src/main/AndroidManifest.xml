@@ -27,6 +27,31 @@
             android:grantUriPermissions="false"
             android:initOrder="100" />
 
+        <!--
+            Serves exported logs as a file stream to the share sheet. Sharing via
+            Intent.EXTRA_TEXT crosses a Binder transaction capped at about 1 MB,
+            which a single base64 response body can exceed; a file URI has no such
+            limit and also lets the sheet offer file destinations. The authority is
+            namespaced per app so it cannot collide with the host's own provider.
+        -->
+        <!--
+            Handles the share sheet's Copy / Save as .txt action chips on Android
+            14+. Invisible and not exported: it is only ever reached through a
+            PendingIntent, which runs with this app's own identity.
+        -->
+        <activity
+            android:name=".util.ShareActionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <provider
+            android:name=".util.ApiLogFileProvider"
+            android:authorities="${applicationId}.apilogkit.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <activity
             android:name=".ui.ApiLogActivity"
             android:exported="false"
