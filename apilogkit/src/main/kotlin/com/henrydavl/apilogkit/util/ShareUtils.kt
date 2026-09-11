@@ -1,12 +1,19 @@
 package com.henrydavl.apilogkit.util
 
 import android.app.Activity
+import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.net.Uri
+import android.os.Build
+import android.service.chooser.ChooserAction
+import androidx.annotation.DrawableRes
+import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
+import com.henrydavl.apilogkit.R
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -58,6 +65,15 @@ internal object ShareUtils {
         }
 
         val chooser = Intent.createChooser(send, "Share log").apply {
+            // Android 14+ can render Copy / Save as .txt as action chips inside the
+            // native sheet — the same shape as iOS's UIActivityViewController, which
+            // ships those as built-in system activities. Android has no such built-in
+            // set (its sheet lists apps that registered an intent-filter), so before
+            // API 34 there is no supported way to put them there; the inspector's
+            // overflow menu carries both on every version.
+            if (uri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                putExtra(Intent.EXTRA_CHOOSER_CUSTOM_ACTIONS, customActions(context, fileName))
+            }
             if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         runCatching { context.startActivity(chooser) }
@@ -98,12 +114,61 @@ internal object ShareUtils {
         return "$prefix-$stamp.txt"
     }
 
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun customActions(context: Context, fileName: String): Array<ChooserAction> = arrayOf(
+        chooserAction(
+            context, R.drawable.ic_apilogkit_copy, "Copy",
+            ShareActionActivity.ACTION_COPY, fileName, requestCode = 1,
+        ),
+        chooserAction(
+            context, R.drawable.ic_apilogkit_save, "Save as .txt",
+            ShareActionActivity.ACTION_SAVE, fileName, requestCode = 2,
+        ),
+    )
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun chooserAction(
+        context: Context,
+        @DrawableRes icon: Int,
+        label: String,
+        action: String,
+        fileName: String,
+        requestCode: Int,
+    ): ChooserAction {
+        val intent = Intent(context, ShareActionActivity::class.java)
+            .setAction(action)
+            // Only the name travels here: PendingIntent extras cross the same
+            // Binder transaction that the log itself is too big for.
+            .putExtra(ShareActionActivity.EXTRA_FILE_NAME, fileName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        val pending = PendingIntent.getActivity(
+            context,
+            requestCode,
+            intent,
+            // UPDATE_CURRENT so a later export replaces the file name in a
+            // PendingIntent the system is still holding from a previous share.
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+
+        return ChooserAction.Builder(
+            Icon.createWithResource(context, icon),
+            label,
+            pending,
+        ).build()
+    }
+
+    /** Resolves an export by name inside ApiLogKit's own cache directory. */
+    internal fun exportFile(context: Context, fileName: String): File =
+        File(exportDir(context), fileName)
+
+    private fun exportDir(context: Context): File = File(context.cacheDir, EXPORT_DIR)
+
     /** Returns a shareable URI for [text], or null if the cache write failed. */
     private fun writeExport(context: Context, text: String, fileName: String): Uri? = runCatching {
-        val dir = File(context.cacheDir, EXPORT_DIR).apply { mkdirs() }
-        pruneStaleExports(dir)
+        pruneStaleExports(exportDir(context).apply { mkdirs() })
 
-        val file = File(dir, fileName)
+        val file = exportFile(context, fileName)
         file.writeText(text)
 
         FileProvider.getUriForFile(context, "${context.packageName}.$AUTHORITY_SUFFIX", file)

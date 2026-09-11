@@ -223,7 +223,12 @@ read `ApiLogger.isPersistenceEnabled` to check the current state.
 Every export route goes through the **native Android share sheet**, with the log attached as a
 timestamped `.txt` file (`raw-log-20260911-143002.txt`).
 
-From a log's detail screen:
+On **Android 14+** the sheet carries **Copy** and **Save as .txt** as action chips, the same shape as
+iOS's share sheet. Android has no built-in action set of its own — its sheet lists apps that
+registered a matching `intent-filter`, whereas iOS's `UIActivityViewController` ships Copy and Save to
+Files as system activities — so this uses `EXTRA_CHOOSER_CUSTOM_ACTIONS`, added in API 34. Below that
+there is no supported way to put actions in the sheet, so the inspector's own menu carries both on
+every version:
 
 | Action | What it does |
 | --- | --- |
