@@ -4,6 +4,17 @@ import java.util.Date
 import java.util.concurrent.atomic.AtomicLong
 
 /**
+ * Lifecycle of a logged exchange. Mirrors the iOS `ApiLogState`.
+ */
+enum class ApiLogState {
+    /** Request sent, no response yet. The response fields are placeholders. */
+    PENDING,
+
+    /** The exchange finished — successfully or not. [ApiLog.responseCode] tells which. */
+    FINISHED,
+}
+
+/**
  * A single recorded log entry — an HTTP request/response or an analytics event.
  *
  * Mirrors the iOS `ApiLog` struct field-for-field so exports and behaviour stay
@@ -32,6 +43,16 @@ data class ApiLog(
      * live captures, so it defaults appropriately and needs no call-site change.
      */
     val fromPreviousSession: Boolean = false,
+    /**
+     * Whether the exchange is still in flight.
+     *
+     * Defaults to [ApiLogState.FINISHED], so entries recorded through
+     * [ApiLogger.addLog] — which is only called once a response exists — keep
+     * behaving exactly as before. Only the [ApiLogger.beginLog]/
+     * [ApiLogger.completeLog] pair and [com.henrydavl.apilogkit.interceptor.ApiLogInterceptor]
+     * produce pending entries.
+     */
+    val state: ApiLogState = ApiLogState.FINISHED,
 ) {
     /**
      * Stable identity, assigned once when the entry is created — the counterpart
@@ -44,9 +65,32 @@ data class ApiLog(
      *
      * Declared in the class body rather than the constructor on purpose: data
      * class `equals`/`hashCode`/`copy` ignore body properties, so two logs with
-     * identical contents still compare equal, exactly as before.
+     * identical contents still compare equal, exactly as before. The flip side is
+     * that `copy()` mints a *new* id, which is why completing a pending entry
+     * goes through [completing] rather than a plain `copy`.
+     *
+     * Read-only from outside: the only writer is [completing].
      */
-    val id: Long = nextId.incrementAndGet()
+    var id: Long = nextId.incrementAndGet()
+        private set
+
+    /**
+     * Returns this (finished) exchange carrying [pending]'s identity and start
+     * time — the Kotlin counterpart of iOS's `restoreIdentity(id:date:)`, applied
+     * after the same wholesale field replacement in [ApiLogger.completeLog].
+     *
+     * Both halves matter. The id keeps `LazyColumn` matching the completed row to
+     * the pending one instead of tearing it down and re-keying it, and the start
+     * time keeps the row in the chronological slot it was inserted at rather than
+     * letting it jump to the top of the list as it resolves.
+     */
+    internal fun completing(pending: ApiLog): ApiLog {
+        // `copy` assigns a fresh id — see the note on [id] — so it is reassigned
+        // immediately afterwards.
+        val completed = copy(date = pending.date, state = ApiLogState.FINISHED)
+        completed.id = pending.id
+        return completed
+    }
 
     companion object {
 
@@ -56,6 +100,7 @@ data class ApiLog(
          * needs, and this avoids a UUID allocation per captured request.
          */
         private val nextId = AtomicLong()
+
         /**
          * Analytics-style event entry (e.g. EventTracker) — no real HTTP fields.
          * Mirrors the iOS convenience initializer.
@@ -75,6 +120,33 @@ data class ApiLog(
             responseBody = responseBody,
             requestHeader = emptyMap(),
             requestBody = requestBody,
+        )
+
+        /**
+         * In-flight entry: the request side is known, the response side isn't yet.
+         *
+         * Produced by [ApiLogger.beginLog]; the response fields are placeholders
+         * until [ApiLogger.completeLog] fills them in. Mirrors the iOS pending
+         * initializer.
+         */
+        fun pending(
+            method: String,
+            url: String,
+            requestHeader: Map<String, Any?> = emptyMap(),
+            requestBody: Map<String, Any?> = emptyMap(),
+            date: Date = Date(),
+        ): ApiLog = ApiLog(
+            responseCode = "",
+            method = method,
+            url = url,
+            responseTime = "0",
+            size = "0",
+            date = date,
+            responseHeader = emptyMap(),
+            responseBody = "",
+            requestHeader = requestHeader,
+            requestBody = requestBody,
+            state = ApiLogState.PENDING,
         )
     }
 }

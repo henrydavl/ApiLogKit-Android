@@ -39,11 +39,25 @@
             android:text="Send POST request (auto-captured)" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSlow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Send slow request (watch it pending)" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnManual"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:text="Add manual log (iOS-parity API)" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnManualPending"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Manual in-flight log (beginLog / completeLog)" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnEvent"

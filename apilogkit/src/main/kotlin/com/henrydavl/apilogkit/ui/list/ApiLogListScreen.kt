@@ -152,22 +152,33 @@ fun ApiLogListScreen(
                 )
             }
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-            ) {
-                // Keyed on the log's stable id: without it LazyColumn falls back to
-                // the index, and because new logs land at the top every arrival
-                // re-keys the visible rows and jolts the scroll position.
-                items(viewModel.items, key = { it.id }) { log ->
-                    ApiLogRow(
-                        log = log,
-                        logType = viewModel.logType,
-                        modifier = Modifier
-                            .padding(vertical = 6.dp)
-                            .clickable { onOpenDetail(log, viewModel.logType) },
-                    )
+            ApiLogFilterBar(viewModel = viewModel)
+
+            // An over-filtered list gets an explicit empty state rather than a
+            // blank screen with no visible cause.
+            if (viewModel.items.isEmpty() && viewModel.filter.isActive) {
+                FilteredEmptyState(
+                    onClearFilters = viewModel::clearFilters,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                ) {
+                    // Keyed on the log's stable id: without it LazyColumn falls back to
+                    // the index, and because new logs land at the top every arrival
+                    // re-keys the visible rows and jolts the scroll position.
+                    items(viewModel.items, key = { it.id }) { log ->
+                        ApiLogRow(
+                            log = log,
+                            logType = viewModel.logType,
+                            modifier = Modifier
+                                .padding(vertical = 6.dp)
+                                .clickable { onOpenDetail(log, viewModel.logType) },
+                        )
+                    }
                 }
             }
         }
