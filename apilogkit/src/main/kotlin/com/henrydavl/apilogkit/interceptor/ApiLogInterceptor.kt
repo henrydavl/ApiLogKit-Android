@@ -16,6 +16,10 @@ import java.util.Date
  * [ApiLogger] — the idiomatic Android auto-capture path (a Chucker replacement),
  * complementing the manual [ApiLogger.addLog] API that mirrors iOS.
  *
+ * Rows appear when the request goes out, not when it comes back: the entry is
+ * recorded pending before `chain.proceed` and completed afterwards (including on
+ * failure), so a call that hangs is visible in the inspector while it hangs.
+ *
  * Add it to your client and you're done:
  *
  *     val client = OkHttpClient.Builder()
@@ -40,12 +44,28 @@ class ApiLogInterceptor(
             return chain.proceed(request)
         }
 
+        // Read once, up front: the pending entry needs the request side now, and
+        // a one-shot body could not be re-read after `proceed` anyway.
+        val requestHeader = request.headers.toApiMap()
+        val requestBody = request.bodyToMap()
+
+        // The row goes in before the call leaves, so a slow or hanging request is
+        // visible while it is happening — Chucker's model, and the reason this is
+        // the natural path on Android.
+        val token = ApiLogger.beginLog(
+            method = request.method,
+            url = request.url.toString(),
+            requestHeader = requestHeader,
+            requestBody = requestBody,
+        )
+
         val startNanos = System.nanoTime()
         val response: Response = try {
             chain.proceed(request)
         } catch (e: Exception) {
-            // Record the failure as a synthetic entry, then rethrow.
-            ApiLogger.addLog(failureLog(request, e, startNanos))
+            // Close the pending entry with the failure rather than appending a
+            // second row; left alone it would stay in flight forever.
+            ApiLogger.completeLog(token, failureLog(request, e, startNanos, requestHeader, requestBody))
             throw e
         }
         val elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000.0
@@ -54,7 +74,8 @@ class ApiLogInterceptor(
         val peek = response.peekBody(maxContentLength)
         val responseBody = peek.string()
 
-        ApiLogger.addLog(
+        ApiLogger.completeLog(
+            token,
             ApiLog(
                 responseCode = response.code.toString(),
                 method = request.method,
@@ -64,15 +85,21 @@ class ApiLogInterceptor(
                 date = Date(),
                 responseHeader = response.headers.toApiMap(),
                 responseBody = responseBody,
-                requestHeader = request.headers.toApiMap(),
-                requestBody = request.bodyToMap(),
+                requestHeader = requestHeader,
+                requestBody = requestBody,
             ),
         )
 
         return response
     }
 
-    private fun failureLog(request: Request, error: Exception, startNanos: Long): ApiLog {
+    private fun failureLog(
+        request: Request,
+        error: Exception,
+        startNanos: Long,
+        requestHeader: Map<String, Any?>,
+        requestBody: Map<String, Any?>,
+    ): ApiLog {
         val elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000.0
         return ApiLog(
             responseCode = "ERR",
@@ -83,8 +110,8 @@ class ApiLogInterceptor(
             date = Date(),
             responseHeader = emptyMap(),
             responseBody = error.message ?: error.toString(),
-            requestHeader = request.headers.toApiMap(),
-            requestBody = request.bodyToMap(),
+            requestHeader = requestHeader,
+            requestBody = requestBody,
         )
     }
 

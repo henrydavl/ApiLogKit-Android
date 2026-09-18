@@ -7,8 +7,12 @@ An in-app API log inspector for Android, written in Jetpack Compose — the Andr
 (plus analytics events such as an EventTracker) and presents them in a debug UI with:
 
 - 📋 Log list with URL search, status-code badges, newest-first ordering
+- 🔎 **Filter bar** — multi-select status / method / host chips; facets combine with AND between
+  them and OR within them, so `4xx + 5xx` × `POST` gives you failed writes only
 - ⚡ **Live list** — requests appear as they happen, with a pause button so reading a log isn't
   disturbed by incoming traffic
+- ⏳ **In-flight requests** — a row appears when the request is *sent*, dimmed and badged `Pending`,
+  and fills in when the response lands; the detail screen shows what you sent while the call hangs
 - 🌳 Interactive JSON viewer — collapsible objects/arrays with child counts, type-colored values,
   tap-to-expand long strings (base64-safe), expand/collapse all
 - 📝 Tree ⇄ pretty-JSON text toggle per body section
@@ -66,6 +70,10 @@ val client = OkHttpClient.Builder()
 Every request/response through that client is captured. Capture is skipped entirely when
 `ApiLogger.isEnabled` is false, so it's safe to leave installed and gate on build type.
 
+Rows appear when the request *goes out*, not when it comes back: the entry is recorded pending
+before `chain.proceed` and completed afterwards (including on failure), so a call that hangs is
+visible in the inspector while it hangs.
+
 **Manually (mirrors the iOS API):**
 
 ```kotlin
@@ -87,6 +95,28 @@ ApiLogger.addLog(
     )
 )
 ```
+
+**In-flight entries, manually** — for networking the interceptor can't see. `beginLog` returns a
+token; hand it back to `completeLog` when the response arrives (mirrors the iOS
+`beginLog` / `completeLog` pair):
+
+```kotlin
+val token = ApiLogger.beginLog(
+    method = "POST",
+    url = "https://api.example.com/v1/checkout",
+    requestHeader = requestHeaders,
+    requestBody = requestParameters,
+)
+
+// …once the response lands:
+ApiLogger.completeLog(token, ApiLog(responseCode = "201", /* … */))
+```
+
+The entry keeps its row identity and its **request start time** across completion, so it fills in
+where it is instead of jumping to the top of the list. A token that is never completed simply stays
+pending — nothing leaks, and the row makes the stuck request obvious. Pending entries are not
+written to disk (a restored pending entry could never complete) and don't touch the notification
+until they complete.
 
 ### 2. Open the inspector
 
@@ -148,7 +178,23 @@ lifecycleScope.launch {
 
 Both flows replay their current value on collection, so a fresh collector fills straight away.
 
-### 4. `ApiLogKitConfig.Persistence` — keep logs across app restarts (optional)
+### 4. Filtering
+
+Above the list sit three multi-select chips — **Status**, **Method**, **Host**:
+
+- An empty facet means "don't filter on this".
+- Within one facet the selections are OR'd; between facets they are AND'd. Selecting `4xx` and `5xx`
+  under Status and `POST` under Method therefore shows failed writes only.
+- Status classes are `Pending`, `2xx`, `3xx`, `4xx`, `5xx` and `Failed`. Anything unparseable or
+  outside the HTTP range is `Failed`, so an OkHttp failure never reads as a success.
+- Method and Host only offer values present in the current bucket, and the selection resets when you
+  switch buckets — a host from another tab would filter everything out with no visible cause.
+- When the facets exclude everything you get an explicit empty state with a **Clear filters**
+  action, not a blank screen.
+
+Filters apply on top of the URL search, and both survive live arrivals.
+
+### 5. `ApiLogKitConfig.Persistence` — keep logs across app restarts (optional)
 
 By default logs live in memory only and are gone once the host process dies — matching iOS. Opt into
 disk persistence and they are mirrored to an app-private SQLite database and read back on the next
@@ -218,7 +264,7 @@ read `ApiLogger.isPersistenceEnabled` to check the current state.
 > belongs to the same package, so a force-stop or a swipe from recents takes it down too. Persisting
 > to disk is how logs survive process death.
 
-### 5. Exporting a log
+### 6. Exporting a log
 
 Every export route goes through the **native Android share sheet**, with the log attached as a
 timestamped `.txt` file (`raw-log-20260911-143002.txt`).
@@ -257,7 +303,7 @@ Exports are written to the app's cache and pruned after an hour. ApiLogKit ships
 `FileProvider` subclass on a namespaced authority, so it won't collide with one your app already
 declares.
 
-### 6. Optional configuration
+### 7. Optional configuration
 
 ```kotlin
 // Locale for row timestamps (defaults to the system locale).
@@ -299,8 +345,15 @@ with Combine `CurrentValueSubject`s, Android with `StateFlow`, and both replay t
 a freshly opened inspector fills immediately. Pause/resume, the pending-count banner and the 250 ms
 search debounce behave the same on both.
 
+The filter bar and the in-flight `Pending` state are ports of the iOS 0.3.0/0.4.0 releases, with the
+same facet semantics and the same status classification. Two Android-only wrinkles in the pending
+path: a pending entry is not written to SQLite until it completes (iOS drops pending entries at save
+time for the same reason), and the Chucker-style notification is updated only on completion, since a
+pending line carries no status or duration to summarise.
+
 Two Android-only additions: an `ApiLogInterceptor` for OkHttp (the idiomatic auto-capture path that
-replaces Chucker; iOS captures manually only), and opt-in disk persistence. Storage is in-memory on
+replaces Chucker; iOS captures manually only — on Android it is also what gives you pending rows for
+free), and opt-in disk persistence. Storage is in-memory on
 both platforms and cleared on process death unless `ApiLogKitConfig.persistence` is set. Export
 formats are identical either way.
 

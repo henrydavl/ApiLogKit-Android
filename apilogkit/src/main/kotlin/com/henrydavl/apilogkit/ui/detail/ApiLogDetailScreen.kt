@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -59,6 +60,8 @@ import com.henrydavl.apilogkit.model.Log
 import com.henrydavl.apilogkit.model.LogEventType
 import com.henrydavl.apilogkit.ui.component.JsonTreeControls
 import com.henrydavl.apilogkit.ui.component.JsonTreeView
+import com.henrydavl.apilogkit.ui.component.PendingSpinner
+import com.henrydavl.apilogkit.ui.theme.ApiLogColors
 import com.henrydavl.apilogkit.util.ShareUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -74,6 +77,12 @@ fun ApiLogDetailScreen(
     val viewModel = remember(log) { ApiLogDetailViewModel(log, logType) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    // Opening a row that is still in flight is deliberate — "what did I actually
+    // send?" is the question worth asking while a call hangs — so the screen
+    // watches for the response instead of refusing to open. Returns immediately
+    // for an already-finished entry, so this costs nothing in the common case.
+    LaunchedEffect(viewModel) { viewModel.awaitCompletion() }
 
     var rawMode by remember { mutableStateOf(false) }
     var exportMenu by remember { mutableStateOf(false) }
@@ -191,36 +200,48 @@ fun ApiLogDetailScreen(
         },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                viewModel.sections.forEach { section ->
-                    item(key = "header_$section") {
-                        SectionHeader(
-                            title = viewModel.title(section),
-                            onCopy = { showCopied(viewModel.copyValue(section)) },
-                        )
-                    }
+            // The banner and the list share a Column so the banner pushes the
+            // sections down rather than covering the first one; the floating
+            // buttons and the copy toast stay Box children so they can align to
+            // the screen edges.
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (viewModel.isPending) {
+                    // Explains the empty response sections while the request is
+                    // in flight. Disappears on its own when the entry completes.
+                    PendingBanner()
+                }
 
-                    val tree = viewModel.treeModel(section)
-                    if (tree != null && !rawMode) {
-                        item(key = "controls_$section") {
-                            JsonTreeControls(
-                                model = tree,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    viewModel.sections.forEach { section ->
+                        item(key = "header_$section") {
+                            SectionHeader(
+                                title = viewModel.title(section),
+                                onCopy = { showCopied(viewModel.copyValue(section)) },
                             )
                         }
-                        item(key = "tree_$section") {
-                            Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                                JsonTreeView(model = tree, onCopy = showCopied)
+
+                        val tree = viewModel.treeModel(section)
+                        if (tree != null && !rawMode) {
+                            item(key = "controls_$section") {
+                                JsonTreeControls(
+                                    model = tree,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
                             }
-                        }
-                    } else {
-                        val monospaced = viewModel.jsonNode(section) != null
-                        items(viewModel.rows(section)) { row ->
-                            RowView(
-                                row = row,
-                                monospaced = monospaced,
-                                onClick = { showCopied(row.value) },
-                            )
+                            item(key = "tree_$section") {
+                                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                                    JsonTreeView(model = tree, onCopy = showCopied)
+                                }
+                            }
+                        } else {
+                            val monospaced = viewModel.jsonNode(section) != null
+                            items(viewModel.rows(section)) { row ->
+                                RowView(
+                                    row = row,
+                                    monospaced = monospaced,
+                                    onClick = { showCopied(row.value) },
+                                )
+                            }
                         }
                     }
                 }
@@ -243,6 +264,31 @@ fun ApiLogDetailScreen(
                 CopyToast(toastMessage.orEmpty())
             }
         }
+    }
+}
+
+/** Surfaces that the response sections are empty because nothing has arrived yet. */
+@Composable
+private fun PendingBanner() {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(ApiLogColors.PendingBannerBackground)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PendingSpinner(
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                size = 12.dp,
+            )
+            Text(
+                text = "Request in flight — the response fills in when it lands",
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        HorizontalDivider()
     }
 }
 

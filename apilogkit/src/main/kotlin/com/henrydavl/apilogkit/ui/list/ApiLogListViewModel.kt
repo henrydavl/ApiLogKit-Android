@@ -8,8 +8,11 @@ import androidx.lifecycle.viewModelScope
 import com.henrydavl.apilogkit.ApiLogKitConfig
 import com.henrydavl.apilogkit.export.ApiLogExporter
 import com.henrydavl.apilogkit.model.ApiLog
+import com.henrydavl.apilogkit.model.ApiLogFilter
 import com.henrydavl.apilogkit.model.ApiLogger
 import com.henrydavl.apilogkit.model.LogEventType
+import com.henrydavl.apilogkit.model.StatusClass
+import com.henrydavl.apilogkit.model.host
 import com.henrydavl.apilogkit.util.maxCharacter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -60,6 +63,10 @@ class ApiLogListViewModel() : ViewModel() {
      * refreshed. Only meaningful while [isPaused].
      */
     var pendingCount by mutableStateOf(0)
+        private set
+
+    /** Status / method / host facets applied on top of the search query. */
+    var filter by mutableStateOf(ApiLogFilter())
         private set
 
     // Live mirrors of the logger's buckets, kept current by the collectors below.
@@ -125,10 +132,13 @@ class ApiLogListViewModel() : ViewModel() {
         val source = currentSource
 
         val query = searchText.maxCharacter(50).trim()
-        val filtered = if (logType == LogEventType.API && query.length >= 3) {
+        var filtered = if (logType == LogEventType.API && query.length >= 3) {
             source.filter { it.url.contains(query, ignoreCase = true) }
         } else {
             source
+        }
+        if (filter.isActive) {
+            filtered = filtered.filter(filter::matches)
         }
 
         // Newest first, matching iOS `logs.reversed()`.
@@ -157,6 +167,52 @@ class ApiLogListViewModel() : ViewModel() {
         }
         if (type == logType) return
         logType = type
+        // Facets are derived from the bucket's own contents — a host carried over
+        // from another tab would filter everything out with no obvious cause.
+        filter = ApiLogFilter()
+        reload()
+    }
+
+    // MARK: - Filtering
+
+    /**
+     * EventTracker entries are synthesised and carry the `"00"` sentinel rather
+     * than a status code, so that facet is hidden for that bucket.
+     */
+    val showsStatusFilter: Boolean get() = logType == LogEventType.API
+
+    /**
+     * Methods present in the current bucket, so the menu only offers values that
+     * can actually match.
+     */
+    val availableMethods: List<String>
+        get() = currentSource.mapTo(sortedSetOf<String>()) { it.method.uppercase() }.toList()
+
+    /**
+     * Hosts present in the current bucket. Empty for EventTracker, whose `url`
+     * holds an event name rather than a real URL — which also hides the chip.
+     */
+    val availableHosts: List<String>
+        get() = currentSource.mapNotNullTo(sortedSetOf<String>()) { it.host }.toList()
+
+    fun toggleStatus(status: StatusClass) {
+        filter = filter.toggleStatus(status)
+        reload()
+    }
+
+    fun toggleMethod(method: String) {
+        filter = filter.toggleMethod(method)
+        reload()
+    }
+
+    fun toggleHost(host: String) {
+        filter = filter.toggleHost(host)
+        reload()
+    }
+
+    fun clearFilters() {
+        if (!filter.isActive) return
+        filter = ApiLogFilter()
         reload()
     }
 

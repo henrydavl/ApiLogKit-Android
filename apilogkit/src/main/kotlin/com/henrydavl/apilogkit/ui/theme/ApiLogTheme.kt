@@ -31,6 +31,16 @@ object ApiLogColors {
 
     /** Tint for the "live stream paused" banner — amber, matching iOS. */
     val PausedBannerBackground = Color(0x26FF9800)
+
+    /**
+     * Background of the in-flight *Pending* badge. Deliberately the same neutral
+     * grey [statusColor] falls back to, so a pending row never reads as a status
+     * class it hasn't reached yet.
+     */
+    val PendingBadgeBackground = Color(0xFF616161)
+
+    /** Tint for the "request in flight" banner on the detail screen. */
+    val PendingBannerBackground = Color(0x24616161)
 }
 
 private val LightColors = lightColorScheme()

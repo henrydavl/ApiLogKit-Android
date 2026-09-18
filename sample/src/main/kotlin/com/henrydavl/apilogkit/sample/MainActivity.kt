@@ -44,7 +44,9 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnGet.setOnClickListener { sendGet() }
         binding.btnPost.setOnClickListener { sendPost() }
+        binding.btnSlow.setOnClickListener { sendSlow() }
         binding.btnManual.setOnClickListener { addManualLog() }
+        binding.btnManualPending.setOnClickListener { addManualPendingLog() }
         binding.btnEvent.setOnClickListener { logEvent() }
         binding.btnOpen.setOnClickListener { ApiLogInspector.launch(this) }
     }
@@ -72,6 +74,50 @@ class MainActivity : AppCompatActivity() {
             .post(body)
             .build()
         client.newCall(request).enqueue(toast("POST"))
+    }
+
+    /**
+     * Deliberately slow so the pending row is visible for long enough to open:
+     * the interceptor records the entry before the call leaves, so it shows up
+     * dimmed and badged *Pending* and fills in ten seconds later.
+     */
+    private fun sendSlow() {
+        val request = Request.Builder().url("https://httpbin.org/delay/10").build()
+        client.newCall(request).enqueue(toast("Slow GET"))
+        Toast.makeText(this, "In flight — open the inspector to watch it", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * The manual counterpart of what the interceptor does, for networking it
+     * can't see. Mirrors the iOS `beginLog` / `completeLog` pair.
+     */
+    private fun addManualPendingLog() {
+        val url = "https://api.example.com/v1/checkout"
+        val token = ApiLogger.beginLog(
+            method = "POST",
+            url = url,
+            requestHeader = mapOf("Authorization" to "Bearer xyz"),
+            requestBody = mapOf("cart" to "item123", "amount" to 5000),
+        )
+        Toast.makeText(this, "Pending for 6s — open the inspector", Toast.LENGTH_SHORT).show()
+
+        binding.root.postDelayed({
+            ApiLogger.completeLog(
+                token,
+                ApiLog(
+                    responseCode = "201",
+                    method = "POST",
+                    url = url,
+                    responseTime = "6.00",
+                    size = "64",
+                    date = Date(),
+                    responseHeader = mapOf("Content-Type" to "application/json"),
+                    responseBody = """{"order":"A-991","status":"confirmed"}""",
+                    requestHeader = mapOf("Authorization" to "Bearer xyz"),
+                    requestBody = mapOf("cart" to "item123", "amount" to 5000),
+                ),
+            )
+        }, 6_000)
     }
 
     private fun addManualLog() {

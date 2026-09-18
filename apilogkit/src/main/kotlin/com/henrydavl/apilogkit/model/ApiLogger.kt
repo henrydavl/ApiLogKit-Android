@@ -112,7 +112,7 @@ object ApiLogger {
 
     fun addLog(log: ApiLog) {
         if (!isEnabled) return
-        synchronized(lock) { _logsFlow.value = _logsFlow.value + log }
+        append(log, LogEventType.API)
         // Persist and update the notification outside the lock (both are
         // best-effort and never throw; the store writes on its own thread).
         store?.insert(log, LogEventType.API)
@@ -121,9 +121,114 @@ object ApiLogger {
 
     fun addEventTrackerLog(log: ApiLog) {
         if (!isEnabled) return
-        synchronized(lock) { _eventTrackerLogsFlow.value = _eventTrackerLogsFlow.value + log }
+        append(log, LogEventType.EVENT_TRACKER)
         store?.insert(log, LogEventType.EVENT_TRACKER)
     }
+
+    // MARK: - In-flight entries
+
+    /**
+     * Records a request that has been sent but hasn't come back yet, and returns
+     * a handle for completing it. Mirrors the iOS `beginLog(...)`.
+     *
+     * The entry appears in the list immediately, dimmed and badged *Pending*, so
+     * a request that is slow — or never answered at all — is visible while it is
+     * happening rather than only in hindsight. Pass the returned token to
+     * [completeLog] when the response arrives:
+     *
+     *     val token = ApiLogger.beginLog(method = "POST", url = url,
+     *                                    requestHeader = headers,
+     *                                    requestBody = parameters)
+     *     // …once the response lands:
+     *     ApiLogger.completeLog(token, ApiLog(responseCode = …))
+     *
+     * Hosts using [com.henrydavl.apilogkit.interceptor.ApiLogInterceptor] get
+     * this for free; this pair is for manual instrumentation of networking the
+     * interceptor can't see.
+     *
+     * A token whose entry is never completed simply stays pending — nothing
+     * leaks, and the row makes the stuck request obvious.
+     */
+    @JvmOverloads
+    fun beginLog(
+        method: String,
+        url: String,
+        requestHeader: Map<String, Any?> = emptyMap(),
+        requestBody: Map<String, Any?> = emptyMap(),
+    ): ApiLogToken = begin(
+        ApiLog.pending(
+            method = method,
+            url = url,
+            requestHeader = requestHeader,
+            requestBody = requestBody,
+        ),
+        LogEventType.API,
+    )
+
+    /**
+     * Fills in the response side of a pending entry, in place.
+     *
+     * The entry keeps its identity and its original start time — see
+     * [ApiLog.completing] — and takes every other field from [log]. A token whose
+     * entry has since been cleared is ignored.
+     *
+     * The side effects are deliberately deferred to here rather than run at
+     * [beginLog] time: a pending entry has no status, duration or response body,
+     * so persisting it would write a row that is stale the moment it lands (a
+     * restored pending entry could never complete — the same reason iOS drops
+     * them at save time), and notifying on it would post a summary line the
+     * notifier has no way to revise later.
+     */
+    fun completeLog(token: ApiLogToken, log: ApiLog) {
+        val completed = mutate(token.id, token.bucket) { pending -> log.completing(pending) } ?: return
+        store?.insert(completed, token.bucket)
+        if (token.bucket == LogEventType.API) notifier?.onTransaction(completed)
+    }
+
+    /** Inserts a pending entry into [bucket] and returns its handle. */
+    internal fun begin(log: ApiLog, bucket: LogEventType): ApiLogToken {
+        if (isEnabled) append(log, bucket)
+        return ApiLogToken(log.id, bucket)
+    }
+
+    // MARK: - Storage
+
+    private fun flowFor(bucket: LogEventType): MutableStateFlow<List<ApiLog>> = when (bucket) {
+        LogEventType.API -> _logsFlow
+        LogEventType.EVENT_TRACKER -> _eventTrackerLogsFlow
+    }
+
+    /**
+     * The change stream for one bucket, for observers that already know which one
+     * they care about — the detail screen watching its own entry complete.
+     * Mirrors iOS's `publisher(for:)`.
+     */
+    internal fun logsFlow(bucket: LogEventType): StateFlow<List<ApiLog>> = when (bucket) {
+        LogEventType.API -> logsFlow
+        LogEventType.EVENT_TRACKER -> eventTrackerLogsFlow
+    }
+
+    private fun append(log: ApiLog, bucket: LogEventType) {
+        synchronized(lock) {
+            val flow = flowFor(bucket)
+            flow.value = flow.value + log
+        }
+    }
+
+    /**
+     * Applies an in-place edit to the entry with [id], if it's still around, and
+     * returns the replacement (null when the entry has been cleared away).
+     */
+    private fun mutate(id: Long, bucket: LogEventType, transform: (ApiLog) -> ApiLog): ApiLog? =
+        synchronized(lock) {
+            val flow = flowFor(bucket)
+            val logs = flow.value
+            val index = logs.indexOfFirst { it.id == id }
+            if (index < 0) return@synchronized null
+            val replacement = transform(logs[index])
+            flow.value = logs.toMutableList().apply { set(index, replacement) }
+            replacement
+        }
 
     /**
      * Current API logs. The flow's value is already an immutable snapshot, so
