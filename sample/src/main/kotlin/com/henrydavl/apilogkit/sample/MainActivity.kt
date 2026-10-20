@@ -2,8 +2,13 @@ package com.henrydavl.apilogkit.sample
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.os.Build
 import android.os.Bundle
+import android.util.Base64
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -18,8 +23,11 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.Date
+import kotlin.random.Random
 
 /**
  * Plain XML/View Activity (no Compose) — demonstrates that an XML-based host can
@@ -48,6 +56,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnManual.setOnClickListener { addManualLog() }
         binding.btnManualPending.setOnClickListener { addManualPendingLog() }
         binding.btnEvent.setOnClickListener { logEvent() }
+        binding.btnBase64.setOnClickListener { logBase64Upload() }
         binding.btnOpen.setOnClickListener { ApiLogInspector.launch(this) }
     }
 
@@ -147,6 +156,64 @@ class MainActivity : AppCompatActivity() {
             ),
         )
         Toast.makeText(this, "Event logged — see EventTracker tab", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * A form-encoded upload whose single field is a JSON *string* carrying
+     * base64 photos — the shape that used to render as one long line, and whose
+     * inline-expanded photo could crash the inspector on low-memory phones.
+     */
+    private fun logBase64Upload() {
+        val storePhoto = photoBase64(Color.rgb(0, 150, 136), seed = 1)
+        val productPhoto = photoBase64(Color.rgb(233, 30, 99), seed = 2)
+        val payload = JSONObject()
+            .put("name", "Warung Kopi Demo")
+            .put("kota", "JAKARTA SELATAN")
+            .put("latitude", -6.2142)
+            .put("longitude", 106.8372)
+            .put("photo_store", storePhoto)
+            .put("photo_product", productPhoto)
+            .toString()
+
+        ApiLogger.addLog(
+            ApiLog(
+                responseCode = "200",
+                method = "POST",
+                url = "https://api.example.com/v1/onboarding/outlet",
+                responseTime = "1.20",
+                size = "${storePhoto.length}",
+                date = Date(),
+                responseHeader = mapOf("Content-Type" to "application/json"),
+                responseBody = JSONObject()
+                    .put("code", "00")
+                    .put("data", JSONObject().put("receipt_image", storePhoto))
+                    .toString(),
+                requestHeader = mapOf("Content-Type" to "application/x-www-form-urlencoded"),
+                requestBody = mapOf("request" to payload),
+            ),
+        )
+        Toast.makeText(this, "Upload logged (${payload.length / 1024} KB body)", Toast.LENGTH_SHORT).show()
+    }
+
+    /** A noisy JPEG, so it stays photo-sized after compression, as base64. */
+    private fun photoBase64(tint: Int, seed: Int): String {
+        val bitmap = Bitmap.createBitmap(720, 960, Bitmap.Config.ARGB_8888)
+        val random = Random(seed)
+        val pixels = IntArray(bitmap.width * bitmap.height) {
+            val noise = random.nextInt(-40, 40)
+            Color.rgb(
+                (Color.red(tint) + noise).coerceIn(0, 255),
+                (Color.green(tint) + noise).coerceIn(0, 255),
+                (Color.blue(tint) + noise).coerceIn(0, 255),
+            )
+        }
+        bitmap.setPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        Canvas(bitmap).drawCircle(360f, 420f, 220f, Paint().apply { color = Color.WHITE })
+
+        val out = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+        bitmap.recycle()
+        return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }
 
     private fun toast(label: String) = object : Callback {

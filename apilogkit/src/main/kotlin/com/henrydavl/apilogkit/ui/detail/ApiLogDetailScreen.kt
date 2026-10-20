@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -58,8 +60,10 @@ import androidx.compose.ui.unit.sp
 import com.henrydavl.apilogkit.model.ApiLog
 import com.henrydavl.apilogkit.model.Log
 import com.henrydavl.apilogkit.model.LogEventType
+import com.henrydavl.apilogkit.ui.component.JsonRowView
 import com.henrydavl.apilogkit.ui.component.JsonTreeControls
-import com.henrydavl.apilogkit.ui.component.JsonTreeView
+import com.henrydavl.apilogkit.ui.component.LongStringItem
+import com.henrydavl.apilogkit.ui.component.LongStringViewer
 import com.henrydavl.apilogkit.ui.component.PendingSpinner
 import com.henrydavl.apilogkit.ui.theme.ApiLogColors
 import com.henrydavl.apilogkit.util.ShareUtils
@@ -85,6 +89,9 @@ fun ApiLogDetailScreen(
     LaunchedEffect(viewModel) { viewModel.awaitCompletion() }
 
     var rawMode by remember { mutableStateOf(false) }
+
+    // Long string value (e.g. base64) opened from the JSON tree.
+    var longString by remember { mutableStateOf<LongStringItem?>(null) }
     var exportMenu by remember { mutableStateOf(false) }
 
     // Copy toast: bump the counter to (re)show, even with the same message.
@@ -228,11 +235,19 @@ fun ApiLogDetailScreen(
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                 )
                             }
-                            item(key = "tree_$section") {
-                                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                                    JsonTreeView(model = tree, onCopy = showCopied)
-                                }
+                            // One item per visible line — see `JsonRow` for why the
+                            // tree must never be a single (unboundedly tall) item.
+                            item(key = "tree_top_$section") { Spacer(Modifier.height(4.dp)) }
+                            items(tree.rows) { row ->
+                                JsonRowView(
+                                    row = row,
+                                    model = tree,
+                                    onCopy = showCopied,
+                                    onOpenString = { longString = it },
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
                             }
+                            item(key = "tree_bottom_$section") { Spacer(Modifier.height(4.dp)) }
                         } else {
                             val monospaced = viewModel.jsonNode(section) != null
                             items(viewModel.rows(section)) { row ->
@@ -254,6 +269,10 @@ fun ApiLogDetailScreen(
                 onDown = { scope.launch { listState.animateScrollToItem(listState.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1) } },
                 modifier = Modifier.align(Alignment.BottomEnd),
             )
+
+            longString?.let { item ->
+                LongStringViewer(item = item, onDismiss = { longString = null })
+            }
 
             AnimatedVisibility(
                 visible = toastMessage != null,
