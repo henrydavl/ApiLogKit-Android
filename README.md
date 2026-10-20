@@ -14,7 +14,11 @@ An in-app API log inspector for Android, written in Jetpack Compose — the Andr
 - ⏳ **In-flight requests** — a row appears when the request is *sent*, dimmed and badged `Pending`,
   and fills in when the response lands; the detail screen shows what you sent while the call hangs
 - 🌳 Interactive JSON viewer — collapsible objects/arrays with child counts, type-colored values,
-  tap-to-expand long strings (base64-safe), expand/collapse all
+  expand/collapse all. JSON passed as a string value (e.g. a form field `request=<json>`) unfolds
+  into the tree too — display only, copy and export keep the original string
+- 🔍 Long values (base64, tokens) open in a full-screen viewer instead of expanding inline, with
+  an image preview for base64-encoded images. Safe on low-memory devices: the tree renders one
+  lazy row per line and the viewer lays out only what's on screen
 - 📝 Tree ⇄ pretty-JSON text toggle per body section
 - 📤 Export as raw log or ready-to-run cURL command — shared through the native Android share sheet
   as a `.txt` attachment, with **Copy** and **Save as .txt** alongside it, so multi-megabyte base64

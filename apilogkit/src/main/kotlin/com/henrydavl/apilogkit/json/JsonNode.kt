@@ -16,15 +16,24 @@ sealed class JsonNode {
     data class Bool(val value: Boolean) : JsonNode()
     object Null : JsonNode()
 
+    /**
+     * A string value that itself holds a JSON object/array — e.g. a form field
+     * sent as `request=<json>`. Display-only: the viewer unfolds [parsed], while
+     * copy and export keep [raw] exactly as logged. Mirrors iOS
+     * `JSONNode.embedded`.
+     */
+    data class Embedded(val raw: String, val parsed: JsonNode) : JsonNode()
+
     /** A container has collapsible children. */
     val isContainer: Boolean
-        get() = this is Obj || this is Arr
+        get() = this is Obj || this is Arr || this is Embedded
 
     /** Number of direct children (0 for leaves). */
     val childCount: Int
         get() = when (this) {
             is Obj -> pairs.size
             is Arr -> items.size
+            is Embedded -> parsed.childCount
             else -> 0
         }
 
@@ -53,6 +62,7 @@ sealed class JsonNode {
             is Num -> value
             is Bool -> if (value) "true" else "false"
             Null -> "null"
+            is Embedded -> encode(raw)
         }
     }
 
@@ -63,6 +73,7 @@ sealed class JsonNode {
             is Num -> value
             is Bool -> if (value) "true" else "false"
             Null -> "null"
+            is Embedded -> raw
             is Obj, is Arr -> prettyPrinted()
         }
 
@@ -102,8 +113,18 @@ sealed class JsonNode {
             is JSONArray -> Arr((0 until any.length()).map { build(any.get(it)) })
             is Boolean -> Bool(any)
             is Number -> Num(numberString(any))
-            is String -> Str(any)
+            is String -> parseEmbedded(any)?.let { Embedded(any, it) } ?: Str(any)
             else -> Str(any.toString())
+        }
+
+        /**
+         * Parses a string value that holds a JSON object/array. The leading-brace
+         * check keeps this cheap for the common case (plain text, base64, ids).
+         */
+        private fun parseEmbedded(string: String): JsonNode? {
+            val first = string.firstOrNull { !it.isWhitespace() } ?: return null
+            if (first != '{' && first != '[') return null
+            return parse(string)?.takeIf { it.childCount > 0 }
         }
 
         private fun numberString(number: Number): String = when (number) {

@@ -67,6 +67,13 @@
             android:text="Log analytics event (EventTracker)" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnBase64"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Log base64 photo upload (JSON-string body)" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnOpen"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
