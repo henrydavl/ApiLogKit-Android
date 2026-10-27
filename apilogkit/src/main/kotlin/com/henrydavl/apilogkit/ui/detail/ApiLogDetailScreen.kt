@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -216,6 +217,10 @@ fun ApiLogDetailScreen(
                     // Explains the empty response sections while the request is
                     // in flight. Disappears on its own when the entry completes.
                     PendingBanner()
+                } else if (viewModel.isUnfinished) {
+                    // Same empty sections, a different and final reason: this
+                    // request never got an answer before its session ended.
+                    UnfinishedBanner()
                 }
 
                 LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -249,7 +254,7 @@ fun ApiLogDetailScreen(
                             }
                             item(key = "tree_bottom_$section") { Spacer(Modifier.height(4.dp)) }
                         } else {
-                            val monospaced = viewModel.jsonNode(section) != null
+                            val monospaced = viewModel.isMonospaced(section)
                             items(viewModel.rows(section)) { row ->
                                 RowView(
                                     row = row,
@@ -303,6 +308,36 @@ private fun PendingBanner() {
             )
             Text(
                 text = "Request in flight — the response fills in when it lands",
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        HorizontalDivider()
+    }
+}
+
+/**
+ * The restored counterpart of [PendingBanner]: the response sections are empty
+ * and always will be, because the app went down while this call was out.
+ */
+@Composable
+private fun UnfinishedBanner() {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(ApiLogColors.PendingBannerBackground)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.HourglassEmpty,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                text = "No response — this request was still in flight when the session ended",
                 fontSize = 12.sp,
                 modifier = Modifier.padding(start = 8.dp),
             )

@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnManualPending.setOnClickListener { addManualPendingLog() }
         binding.btnEvent.setOnClickListener { logEvent() }
         binding.btnBase64.setOnClickListener { logBase64Upload() }
+        binding.btnCrash.setOnClickListener { crashOnResponse() }
         binding.btnOpen.setOnClickListener { ApiLogInspector.launch(this) }
     }
 
@@ -127,6 +128,40 @@ class MainActivity : AppCompatActivity() {
                 ),
             )
         }, 6_000)
+    }
+
+    /**
+     * The scenario crash capture exists for: a real request comes back, the
+     * parsing code chokes on the payload, and the app dies before the log has
+     * finished being written.
+     *
+     * Reproduces it faithfully by crashing *in the response callback* — the
+     * interceptor has already recorded the exchange, but the write is still
+     * queued on the store's background thread, so without the crash handler
+     * flushing it the entry would be lost along with the process.
+     *
+     * Relaunch the app afterwards and open the inspector: the previous session's
+     * crash is announced at the top of the list, and the response below it is
+     * badged CRASH with the stack trace above its body.
+     */
+    private fun crashOnResponse() {
+        Toast.makeText(this, "Crashing on the response — then relaunch", Toast.LENGTH_SHORT).show()
+        val request = Request.Builder().url("https://httpbin.org/get?crash=now").build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = runOnUiThread {
+                Toast.makeText(this@MainActivity, "Request failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.close()
+                // On the main thread, exactly where a mapping failure would land.
+                runOnUiThread {
+                    throw IllegalStateException(
+                        "Expected BEGIN_OBJECT but was STRING at \$.data.outlet[0].id",
+                    )
+                }
+            }
+        })
     }
 
     private fun addManualLog() {

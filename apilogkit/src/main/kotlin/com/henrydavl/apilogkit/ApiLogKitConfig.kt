@@ -40,8 +40,9 @@ object ApiLogKitConfig {
 
     /**
      * Opt-in disk persistence, so captured logs survive the host app being
-     * killed and are still there to export — or to compare against a later call
-     * to the same endpoint — on the next launch.
+     * killed — including by a crash, where the response that caused it is pinned
+     * to the crash's stack trace and waiting in the inspector on the next launch
+     * (see [Persistence.captureCrashes]).
      *
      *     // in Application.onCreate()
      *     if (BuildConfig.DEBUG) {
@@ -72,9 +73,25 @@ object ApiLogKitConfig {
      *   separately for API logs and event-tracker logs. Older rows are pruned
      *   automatically. Restored entries are also held in memory, so a very large
      *   cap combined with large response bodies costs heap on the next launch.
+     * @param captureCrashes whether an uncaught exception is recorded and pinned
+     *   to the entries that were live when it happened — on by default, because
+     *   it is what makes persistence useful for debugging a crash rather than
+     *   only for reading old traffic.
+     *
+     *   Persistence alone is not enough to survive a crash. Writes are queued on
+     *   a background thread, and the response that triggers a crash is usually
+     *   still in that queue when the process dies. With this on, the handler
+     *   blocks until the queue has reached disk, then records the crash and tags
+     *   the suspect entries, so the next launch opens with the payload and the
+     *   stack trace side by side.
+     *
+     *   The host's own crash reporter is unaffected: whatever handler was already
+     *   installed is always called afterwards. Turn this off if you would rather
+     *   nothing of ApiLogKit's ran on the crash path.
      */
-    class Persistence(
+    class Persistence @JvmOverloads constructor(
         val maxEntries: Int = DEFAULT_MAX_ENTRIES,
+        val captureCrashes: Boolean = true,
     ) {
         companion object {
             const val DEFAULT_MAX_ENTRIES = 500

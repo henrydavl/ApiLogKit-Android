@@ -29,9 +29,15 @@ class SampleApp : Application() {
 
         // Keep logs across app restarts so they can still be exported — or
         // compared against a later call to the same endpoint — after the process
-        // is killed. Debug-only: this writes request/response bodies to disk.
+        // is killed, crashes included: captureCrashes (on by default) flushes the
+        // queued writes as the app dies and pins the crash to the exchange that
+        // was live at the time. Debug-only: this writes request/response bodies
+        // to disk.
         if (BuildConfig.DEBUG) {
-            ApiLogKitConfig.persistence = ApiLogKitConfig.Persistence(maxEntries = 500)
+            ApiLogKitConfig.persistence = ApiLogKitConfig.Persistence(
+                maxEntries = 500,
+                captureCrashes = true,
+            )
         }
 
         // Plug the host's own XML-based Developer Options screen into the menu.

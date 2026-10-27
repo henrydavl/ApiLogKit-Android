@@ -53,6 +53,17 @@ data class ApiLog(
      * produce pending entries.
      */
     val state: ApiLogState = ApiLogState.FINISHED,
+    /**
+     * The crash this entry is blamed for, when one was recorded immediately
+     * after it — see [CrashReport] and
+     * [com.henrydavl.apilogkit.ApiLogKitConfig.Persistence.captureCrashes].
+     *
+     * Only ever set on an entry restored from disk: the crash is recorded as the
+     * process dies, so the pairing is first visible on the *next* launch. Like
+     * [fromPreviousSession] this is a display hint, so it defaults to null and no
+     * call site has to change.
+     */
+    val crash: CrashReport? = null,
 ) {
     /**
      * Stable identity, assigned once when the entry is created — the counterpart

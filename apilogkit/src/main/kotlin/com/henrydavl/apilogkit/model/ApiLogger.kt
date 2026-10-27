@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import com.henrydavl.apilogkit.ApiLogKitConfig
 import com.henrydavl.apilogkit.ShakeDetector
+import com.henrydavl.apilogkit.crash.ApiLogCrashTracker
 import com.henrydavl.apilogkit.notification.ApiLogNotifier
 import com.henrydavl.apilogkit.persistence.ApiLogStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,8 +19,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * iOS). Hosts that need logs to outlive the process can opt into disk
  * persistence via [ApiLogKitConfig.persistence] / [enablePersistence]; entries
  * are then mirrored to an app-private SQLite database and read back on the next
- * launch. All in-memory access is guarded by [lock], replacing iOS's serial
- * dispatch queue.
+ * launch. Persistence also brings crash capture: an uncaught exception flushes
+ * the queued writes before the process dies and tags the entries that were live
+ * at that moment, so the response behind the crash is waiting in the inspector
+ * on the next launch. All in-memory access is guarded by [lock], replacing iOS's
+ * serial dispatch queue.
  *
  * Storage is reactive: [logsFlow] and [eventTrackerLogsFlow] emit on every
  * change, so an open inspector updates live instead of showing the snapshot it
@@ -36,6 +40,7 @@ object ApiLogger {
     // [lock]; StateFlow itself is safe to *read* from any thread.
     private val _logsFlow = MutableStateFlow<List<ApiLog>>(emptyList())
     private val _eventTrackerLogsFlow = MutableStateFlow<List<ApiLog>>(emptyList())
+    private val _lastCrashFlow = MutableStateFlow<CrashReport?>(null)
 
     private var eventTrackerEnabled = false
 
@@ -48,6 +53,18 @@ object ApiLogger {
 
     /** Emits the full EventTracker log list whenever it changes. */
     val eventTrackerLogsFlow: StateFlow<List<ApiLog>> = _eventTrackerLogsFlow.asStateFlow()
+
+    /**
+     * The most recent crash read back from disk, or null when the last run ended
+     * normally (or crash capture is off).
+     *
+     * Published separately from the logs so the inspector can say "the previous
+     * session crashed" even when the entry it blamed has since been pruned. Set
+     * once, during the restore that follows
+     * [ApiLogKitConfig.Persistence.captureCrashes]; a crash recorded in *this*
+     * process never appears here, because the process does not survive it.
+     */
+    val lastCrashFlow: StateFlow<CrashReport?> = _lastCrashFlow.asStateFlow()
 
     // Application captured automatically at startup (see ApiLogInitProvider) so
     // the notification can work without any host setup call.
@@ -109,6 +126,13 @@ object ApiLogger {
     /** True when captured logs are being mirrored to disk. */
     val isPersistenceEnabled: Boolean
         get() = store != null
+
+    /**
+     * True when the uncaught-exception handler is in place, so a crash flushes
+     * the pending writes and tags the entries that were live when it happened.
+     */
+    val isCrashCaptureEnabled: Boolean
+        get() = store != null && ApiLogCrashTracker.isInstalled
 
     fun addLog(log: ApiLog) {
         if (!isEnabled) return
@@ -172,22 +196,33 @@ object ApiLogger {
      * [ApiLog.completing] — and takes every other field from [log]. A token whose
      * entry has since been cleared is ignored.
      *
-     * The side effects are deliberately deferred to here rather than run at
-     * [beginLog] time: a pending entry has no status, duration or response body,
-     * so persisting it would write a row that is stale the moment it lands (a
-     * restored pending entry could never complete — the same reason iOS drops
-     * them at save time), and notifying on it would post a summary line the
+     * The row is *updated* rather than inserted: [beginLog] already wrote the
+     * request side to disk, and this fills in the response side in place. The
+     * notification, by contrast, is still deferred to here — a pending entry has
+     * no status or duration, so notifying on it would post a summary line the
      * notifier has no way to revise later.
      */
     fun completeLog(token: ApiLogToken, log: ApiLog) {
         val completed = mutate(token.id, token.bucket) { pending -> log.completing(pending) } ?: return
-        store?.insert(completed, token.bucket)
+        store?.update(completed, token.bucket)
         if (token.bucket == LogEventType.API) notifier?.onTransaction(completed)
     }
 
-    /** Inserts a pending entry into [bucket] and returns its handle. */
+    /**
+     * Inserts a pending entry into [bucket] and returns its handle.
+     *
+     * The pending row goes to disk immediately, before the response exists. That
+     * is the whole value of it after a crash: a request that was still in flight
+     * when the process died leaves no other trace, and it is the strongest
+     * suspect there is — nothing came back, so nothing else can explain the
+     * failure. [completeLog] updates the same row in place, so the row is never
+     * left stale and never duplicated.
+     */
     internal fun begin(log: ApiLog, bucket: LogEventType): ApiLogToken {
-        if (isEnabled) append(log, bucket)
+        if (isEnabled) {
+            append(log, bucket)
+            store?.insert(log, bucket)
+        }
         return ApiLogToken(log.id, bucket)
     }
 
@@ -243,6 +278,9 @@ object ApiLogger {
         synchronized(lock) {
             _logsFlow.value = emptyList()
             _eventTrackerLogsFlow.value = emptyList()
+            // The crash banner outlives the entries it pointed at otherwise, and
+            // "clear" plainly means the inspector should come back empty.
+            _lastCrashFlow.value = null
             // A restore queued at startup may not have run yet; without this it
             // would repopulate the list moments after the user cleared it, with
             // entries whose rows are about to be deleted anyway.
@@ -289,8 +327,9 @@ object ApiLogger {
     fun enablePersistence(
         context: Context,
         maxEntries: Int = ApiLogKitConfig.Persistence.DEFAULT_MAX_ENTRIES,
+        captureCrashes: Boolean = true,
     ) {
-        openStore(context, maxEntries)
+        openStore(context, maxEntries, captureCrashes)
     }
 
     /**
@@ -318,10 +357,15 @@ object ApiLogger {
             pendingPersistence = config
             return
         }
-        openStore(application, config.maxEntries)
+        openStore(application, config.maxEntries, config.captureCrashes)
     }
 
-    private fun openStore(context: Context, maxEntries: Int) {
+    private fun openStore(context: Context, maxEntries: Int, captureCrashes: Boolean) {
+        // Installed outside the lock, and before the early-out below, so that
+        // enabling crash capture on an already-open store still takes effect and
+        // so global JVM state is never touched while holding [lock].
+        if (captureCrashes) ApiLogCrashTracker.install(::onCrash)
+
         synchronized(lock) {
             val existing = store
             if (existing != null) {
@@ -336,7 +380,7 @@ object ApiLogger {
                 hasRestored = true
                 // Queued before the store is published below, so nothing captured
                 // in this process can be read back and mislabelled as older.
-                opened.loadAsync { restoredApi, restoredEvents ->
+                opened.loadAsync { restoredApi, restoredEvents, lastCrash ->
                     synchronized(lock) {
                         if (!restoreCancelled) {
                             // Prepended: restored entries predate anything captured
@@ -345,12 +389,54 @@ object ApiLogger {
                             // the restored entries up without being reopened.
                             _logsFlow.value = restoredApi + _logsFlow.value
                             _eventTrackerLogsFlow.value = restoredEvents + _eventTrackerLogsFlow.value
+                            _lastCrashFlow.value = lastCrash
                         }
                     }
                 }
             }
             store = opened
         }
+    }
+
+    // MARK: - Crash capture
+
+    /**
+     * Called from the uncaught-exception handler, on the dying thread.
+     *
+     * Blocking here is intentional — see [ApiLogStore.recordCrashBlocking]. The
+     * store may be null when persistence was turned off after the handler was
+     * installed (it is never uninstalled), in which case there is nowhere to
+     * write and nothing to wait for.
+     */
+    private fun onCrash(report: CrashReport) {
+        val target = store ?: return
+        target.recordCrashBlocking(report, crashSuspectIds())
+    }
+
+    /**
+     * The entries worth blaming for a crash happening right now, newest intent
+     * first.
+     *
+     * Two kinds qualify, and they answer different questions:
+     *
+     *  * **Everything still in flight.** A request that never came back is the
+     *    prime suspect, and it is also the entry that would otherwise be hardest
+     *    to reconstruct afterwards.
+     *  * **The newest finished API entry.** A crash that follows a response by
+     *    milliseconds is almost always the app choking on *that* payload — a
+     *    missing field, a null where a string was promised, an unexpected enum.
+     *
+     * Entries restored from an earlier run are excluded: they cannot have caused
+     * a crash in this process, and a quiet session with persistence on would
+     * otherwise see yesterday's last response blamed for today's crash.
+     * EventTracker entries are excluded for the same reason — they are
+     * synthesised locally and carry no server payload to be wrong.
+     */
+    internal fun crashSuspectIds(): List<Long> {
+        val logs = _logsFlow.value.filterNot { it.fromPreviousSession }
+        val pending = logs.filter { it.state == ApiLogState.PENDING }.map { it.id }
+        val lastFinished = logs.lastOrNull { it.state == ApiLogState.FINISHED }?.id
+        return (pending + listOfNotNull(lastFinished)).distinct()
     }
 
     /** Captures the Application context (called from ApiLogInitProvider at startup). */
@@ -361,7 +447,7 @@ object ApiLogger {
         }
         pendingPersistence?.let { config ->
             pendingPersistence = null
-            openStore(application, config.maxEntries)
+            openStore(application, config.maxEntries, config.captureCrashes)
         }
     }
 }
