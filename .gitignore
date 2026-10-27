@@ -11,3 +11,7 @@ local.properties
 .idea/
 *.hprof
 .kotlin/
+
+# Local AI working context (see CLAUDE.md) — not shared with the repo
+CLAUDE.md
+.claude/
