@@ -74,6 +74,13 @@
             android:text="Log base64 photo upload (JSON-string body)" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCrash"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Crash on a response (then relaunch)" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnOpen"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

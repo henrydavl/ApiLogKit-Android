@@ -1,18 +1,27 @@
 package com.henrydavl.apilogkit.export
 
 import com.henrydavl.apilogkit.model.ApiLog
+import com.henrydavl.apilogkit.model.CrashReport
+import com.henrydavl.apilogkit.util.apiLogFormatted
 import com.henrydavl.apilogkit.util.jsonize
 
 /**
  * Text exporters for log entries. Output formats match the iOS
  * `ApiLogExporter` byte-for-byte so a raw log or cURL produced on either
  * platform reads identically.
+ *
+ * The one addition is the crash block [rawLog] prepends for a crash-linked
+ * entry. Parity is unaffected in practice: iOS has no crash capture, so no entry
+ * it can produce carries a [CrashReport], and every entry that doesn't exports
+ * exactly as before. Keeping the payload and the stack trace in one file is
+ * worth it — that file is what gets pasted into the bug report.
  */
 object ApiLogExporter {
 
     /** Human-readable dump of a single log entry. */
     fun rawLog(log: ApiLog): String {
         val output = StringBuilder()
+        log.crash?.let { output.append(crashReport(it)) }
         output.append("${log.url}\n\n")
 
         output.append("---------- Request Header\n")
@@ -33,6 +42,24 @@ object ApiLogExporter {
         output.append("---------- Response Body\n")
         output.append("${log.responseBody}\n\n")
         output.append("======================>>>>>>>\n\n\n")
+        return output.toString()
+    }
+
+    /**
+     * The crash block prepended to a crash-linked entry's raw log, and the text
+     * the detail screen's **Crash** section copies.
+     *
+     * Front-loaded with the headline, thread and time so the first three lines
+     * answer "what died, where, when"; the full trace, causes included, follows.
+     */
+    fun crashReport(crash: CrashReport): String {
+        val output = StringBuilder()
+        output.append("---------- Crash\n")
+        output.append("${crash.headline}\n")
+        output.append("Thread: ${crash.threadName}\n")
+        output.append("Time: ${crash.date.apiLogFormatted()}\n\n")
+        output.append(crash.stackTrace.trimEnd())
+        output.append("\n\n")
         return output.toString()
     }
 

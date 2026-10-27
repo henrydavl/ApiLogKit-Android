@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -48,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.henrydavl.apilogkit.ApiLogKitConfig
@@ -152,6 +154,18 @@ fun ApiLogListScreen(
                 )
             }
 
+            // The first thing to see after a crash: what died, and a jump
+            // straight to the exchange it was pinned to.
+            val crash = viewModel.lastCrash
+            if (crash != null && viewModel.showsCrashBanner) {
+                val crashedLog = viewModel.crashedLog
+                CrashBanner(
+                    headline = crash.headline,
+                    onOpen = crashedLog?.let { log -> { onOpenDetail(log, LogEventType.API) } },
+                    onDismiss = viewModel::dismissCrashBanner,
+                )
+            }
+
             ApiLogFilterBar(viewModel = viewModel)
 
             // An over-filtered list gets an explicit empty state rather than a
@@ -227,6 +241,66 @@ private fun PausedBanner(
         )
         TextButton(onClick = onResume, contentPadding = PaddingValues(horizontal = 8.dp)) {
             Text("Resume", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+/**
+ * Announces that the previous run ended in a crash and points at the exchange
+ * blamed for it.
+ *
+ * At the top of the list rather than as a row in it: the suspect is somewhere in
+ * the middle of the restored entries, chronologically, and after a crash the one
+ * thing you want is not to go looking for it.
+ *
+ * @param onOpen null when the crash's entry is no longer on disk — the banner
+ *   still reports the crash, without an action that would go nowhere.
+ */
+@Composable
+private fun CrashBanner(
+    headline: String,
+    onOpen: (() -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(ApiLogColors.CrashBannerBackground)
+            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Outlined.BugReport,
+            contentDescription = null,
+            tint = ApiLogColors.CrashBadgeBackground,
+            modifier = Modifier.size(16.dp),
+        )
+        Column(modifier = Modifier.padding(start = 8.dp).weight(1f)) {
+            Text(
+                text = "Previous session crashed",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = headline,
+                fontSize = 11.sp,
+                // Two lines: an exception message is often the part that names
+                // the offending field, and truncating it to one loses that.
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (onOpen != null) {
+            TextButton(onClick = onOpen, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("View", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = "Dismiss crash notice",
+                modifier = Modifier.size(16.dp),
+            )
         }
     }
 }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -42,6 +43,7 @@ fun ApiLogRow(log: ApiLog, logType: LogEventType, modifier: Modifier = Modifier)
     val responseTimeText = "%.2f s".format(log.responseTime.toDoubleOrNull() ?: 0.0)
     val isHttp = logType == LogEventType.API
     val isPending = log.state == ApiLogState.PENDING
+    val isCrashSuspect = log.crash != null
 
     // EventTracker rows have no status or timing, but a restored one still needs
     // its marker — so the badge row also appears for those.
@@ -51,16 +53,17 @@ fun ApiLogRow(log: ApiLog, logType: LogEventType, modifier: Modifier = Modifier)
         modifier = modifier
             .fillMaxWidth()
             // Dim the whole row while in flight, so completed entries are what
-            // the eye lands on when scanning.
-            .alpha(if (isPending) 0.55f else 1f),
+            // the eye lands on when scanning. A crash suspect is never dimmed,
+            // in-flight or not: it is the row you came here to find.
+            .alpha(if (isPending && !isCrashSuspect) 0.55f else 1f),
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         border = BorderStroke(
-            1.dp,
-            if (isPending) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-            } else {
-                MaterialTheme.colorScheme.outlineVariant
+            if (isCrashSuspect) 2.dp else 1.dp,
+            when {
+                isCrashSuspect -> ApiLogColors.CrashBadgeBackground
+                isPending -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                else -> MaterialTheme.colorScheme.outlineVariant
             },
         ),
     ) {
@@ -72,11 +75,21 @@ fun ApiLogRow(log: ApiLog, logType: LogEventType, modifier: Modifier = Modifier)
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (isHttp) {
-                        if (isPending) {
-                            PendingBadge()
-                        } else {
-                            StatusBadge(log.responseCode)
+                        when {
+                            // A restored entry that never completed is not "in
+                            // flight" any more — its process is gone — so it gets
+                            // a settled badge rather than a spinner that would
+                            // never stop.
+                            isPending && log.fromPreviousSession -> UnfinishedBadge()
+                            isPending -> PendingBadge()
+                            else -> StatusBadge(log.responseCode)
                         }
+                    }
+
+                    // The reason this row is worth opening first: the app died
+                    // right after this exchange.
+                    if (isCrashSuspect) {
+                        CrashBadge()
                     }
 
                     // Only ever true when the host opted into disk persistence;
@@ -178,6 +191,50 @@ private fun RestoredBadge() {
             contentDescription = "From a previous session",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(15.dp),
+        )
+    }
+}
+
+/**
+ * Marks the entry a recorded crash was pinned to — the response the app was
+ * most likely chewing on when it died, or the request that never came back.
+ */
+@Composable
+private fun CrashBadge() {
+    Badge(background = ApiLogColors.CrashBadgeBackground, horizontalPadding = 7.dp) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                Icons.Outlined.BugReport,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                text = "CRASH",
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+/**
+ * The settled form of [PendingBadge], for a restored entry whose response never
+ * arrived. Grey rather than red: no response is a fact about that run, not an
+ * error the server returned.
+ */
+@Composable
+private fun UnfinishedBadge() {
+    Badge(background = ApiLogColors.PendingBadgeBackground, horizontalPadding = 8.dp) {
+        Text(
+            text = "No response",
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }

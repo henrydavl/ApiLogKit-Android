@@ -10,6 +10,7 @@ import com.henrydavl.apilogkit.export.ApiLogExporter
 import com.henrydavl.apilogkit.model.ApiLog
 import com.henrydavl.apilogkit.model.ApiLogFilter
 import com.henrydavl.apilogkit.model.ApiLogger
+import com.henrydavl.apilogkit.model.CrashReport
 import com.henrydavl.apilogkit.model.LogEventType
 import com.henrydavl.apilogkit.model.StatusClass
 import com.henrydavl.apilogkit.model.host
@@ -69,6 +70,34 @@ class ApiLogListViewModel() : ViewModel() {
     var filter by mutableStateOf(ApiLogFilter())
         private set
 
+    /**
+     * The crash that ended the previous session, once the restore has read it
+     * back — null when the last run ended cleanly or crash capture is off.
+     */
+    var lastCrash by mutableStateOf<CrashReport?>(null)
+        private set
+
+    /** Set when the user dismisses the crash banner, so it stays dismissed. */
+    private var crashBannerDismissed by mutableStateOf(false)
+
+    /**
+     * Whether to offer the crash banner: only on the API tab, since suspects are
+     * only ever API entries, and only until dismissed.
+     */
+    val showsCrashBanner: Boolean
+        get() = lastCrash != null && !crashBannerDismissed && logType == LogEventType.API
+
+    /**
+     * The entry the crash was pinned to, for the banner's jump-to action.
+     *
+     * Read from the unfiltered bucket on purpose — the banner must still work
+     * when a search or facet has filtered the suspect out of view, which is
+     * precisely when the jump is most useful. Null when the row was pruned
+     * before the restore; the banner then shows without the action.
+     */
+    val crashedLog: ApiLog?
+        get() = apiLogs.lastOrNull { it.crash != null }
+
     // Live mirrors of the logger's buckets, kept current by the collectors below.
     private var apiLogs: List<ApiLog> = emptyList()
     private var eventTrackerLogs: List<ApiLog> = emptyList()
@@ -96,6 +125,12 @@ class ApiLogListViewModel() : ViewModel() {
                 eventTrackerLogs = logs
                 reloadIfLive()
             }
+        }
+        // Collected rather than read once: the restore runs on a background
+        // thread, so the crash is usually read back a moment *after* the
+        // inspector has opened.
+        viewModelScope.launch {
+            ApiLogger.lastCrashFlow.collect { crash -> lastCrash = crash }
         }
     }
 
@@ -208,6 +243,10 @@ class ApiLogListViewModel() : ViewModel() {
     fun toggleHost(host: String) {
         filter = filter.toggleHost(host)
         reload()
+    }
+
+    fun dismissCrashBanner() {
+        crashBannerDismissed = true
     }
 
     fun clearFilters() {

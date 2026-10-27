@@ -30,6 +30,9 @@ An in-app API log inspector for Android, written in Jetpack Compose — the Andr
   API that mirrors iOS
 - 💾 Optional disk persistence — logs survive the app being killed, so you can export or compare
   them on a later launch
+- 💥 **Crash capture** — an uncaught exception is recorded and pinned to the exchange that was live
+  when it happened, so the next launch opens with the response that caused the crash and the stack
+  trace side by side
 
 It is designed to be the **same inspector on both platforms**: the data model, export formats, and
 UX match the iOS library so behavior is consistent across Android and iOS.
@@ -198,12 +201,12 @@ Above the list sit three multi-select chips — **Status**, **Method**, **Host**
 
 Filters apply on top of the URL search, and both survive live arrivals.
 
-### 5. `ApiLogKitConfig.Persistence` — keep logs across app restarts (optional)
+### 5. `ApiLogKitConfig.Persistence` — keep logs across app restarts, crashes included (optional)
 
 By default logs live in memory only and are gone once the host process dies — matching iOS. Opt into
 disk persistence and they are mirrored to an app-private SQLite database and read back on the next
-launch, so you can still export them, or compare an old response against a later call to the same
-endpoint.
+launch, so you can still export them, compare an old response against a later call to the same
+endpoint, or — most usefully — **find the response that crashed the app**.
 
 **Enable it once, at startup:**
 
@@ -226,10 +229,59 @@ That single line is the whole setup — no database to create, no permissions, n
 | Parameter | Default | Meaning |
 | --- | --- | --- |
 | `maxEntries` | `500` | How many of the newest entries to keep on disk, counted **separately** for API logs and EventTracker logs. Older rows are pruned automatically. |
+| `captureCrashes` | `true` | Record uncaught exceptions and pin them to the entries that were live at the time. See [Crash capture](#crash-capture) below. |
 
 Restored entries are also held in memory, so a very large cap combined with large response bodies
 costs heap on the next launch. `ApiLogKitConfig.Persistence.DEFAULT_MAX_ENTRIES` exposes the default
 if you want to reference it.
+
+#### Crash capture
+
+Persistence on its own is **not** enough to survive a crash. Writes are queued on a background
+thread, and a crash usually happens milliseconds after the response that triggered it — while that
+insert is still sitting in the queue. The process then dies and takes the queue with it, losing the
+single most useful entry in the list.
+
+`captureCrashes` closes that hole. On an uncaught exception, ApiLogKit:
+
+1. **blocks until the queued writes have actually reached disk** (up to 2 s) — the only moment this
+   can be done is from inside the dying process;
+2. records the crash: thread, exception type, message, and the full stack trace with `Caused by:`
+   chains;
+3. **pins it to the entries that were live at that moment** — everything still in flight, plus the
+   newest finished API call;
+4. hands the crash to whatever handler was already installed.
+
+That last step matters: **your crash reporter is unaffected.** Crashlytics, Sentry, Bugsnag and the
+platform's own handler all run exactly as before, whether they installed before or after ApiLogKit.
+ApiLogKit is an observer on the crash path, never the owner — and if anything goes wrong while it is
+recording, the host's real stack trace still gets through.
+
+**On the next launch** the inspector opens with:
+
+- a **Previous session crashed** banner naming the exception, with a **View** button that jumps
+  straight to the suspect entry — no scrolling through restored traffic to find it;
+- a red **CRASH** badge on that row, so it stands out even in a list full of 4xx/5xx calls;
+- a **Crash** section at the top of its detail screen with the stack trace, monospaced and
+  copyable, directly above the response body that caused it;
+- the crash block prepended to that entry's **raw log export**, so one shared `.txt` carries the
+  payload and the trace together — which is what you paste into the bug report.
+
+A request that was **still in flight** when the app died is flagged too, badged **No response**:
+nothing came back, so nothing else can explain the failure, and it leaves no other trace at all.
+
+Entries restored from an earlier run are never blamed, so a quiet session that crashes without
+issuing a request won't see yesterday's last response pinned to today's crash.
+
+Set it to `false` if you would rather nothing of ApiLogKit's ran on the crash path:
+
+```kotlin
+ApiLogKitConfig.persistence = ApiLogKitConfig.Persistence(captureCrashes = false)
+```
+
+> ℹ️ The handler is installed once and never uninstalled — handing it back would mean overwriting
+> whoever installed theirs in the meantime. Turning persistence off instead leaves it with nothing to
+> write.
 
 **Turning it off:**
 
@@ -241,13 +293,15 @@ ApiLogger.clearLogs()                // wipes memory and disk together
 **From Java, or without the config object:**
 
 ```java
-ApiLogger.INSTANCE.enablePersistence(context, 500);
+ApiLogger.INSTANCE.enablePersistence(context, 500, true);
 ApiLogger.INSTANCE.disablePersistence();
 ```
 
-`ApiLogger.enablePersistence(context, maxEntries)` is the explicit equivalent — useful if your app
-strips `ApiLogInitProvider` and so has no automatically captured `Application` context. You can also
-read `ApiLogger.isPersistenceEnabled` to check the current state.
+`ApiLogger.enablePersistence(context, maxEntries, captureCrashes)` is the explicit equivalent —
+useful if your app strips `ApiLogInitProvider` and so has no automatically captured `Application`
+context. The last two arguments are optional from Kotlin. You can also read
+`ApiLogger.isPersistenceEnabled` and `ApiLogger.isCrashCaptureEnabled` to check the current state,
+and collect `ApiLogger.lastCrashFlow` to react to the previous session's crash in your own UI.
 
 **What to expect:**
 
@@ -256,7 +310,10 @@ read `ApiLogger.isPersistenceEnabled` to check the current state.
   the inspector.
 - Everything is opt-in and off by default, so upgrading changes nothing until you set the flag.
 - All database work runs on a background thread and is best-effort; a failed write never surfaces to
-  your app.
+  your app. The crash handler is the sole exception, and blocks only because the process is already
+  dying.
+- In-flight requests are written to disk as soon as they go out and updated in place when the
+  response lands, so a call that never came back still leaves a row.
 - It is plain `SQLiteOpenHelper`, **not Room** — a debug library shouldn't drag androidx.room and KSP
   onto your classpath.
 - The database is dropped and recreated on schema upgrades. Debug logs are disposable.
@@ -350,16 +407,18 @@ a freshly opened inspector fills immediately. Pause/resume, the pending-count ba
 search debounce behave the same on both.
 
 The filter bar and the in-flight `Pending` state are ports of the iOS 0.3.0/0.4.0 releases, with the
-same facet semantics and the same status classification. Two Android-only wrinkles in the pending
-path: a pending entry is not written to SQLite until it completes (iOS drops pending entries at save
-time for the same reason), and the Chucker-style notification is updated only on completion, since a
-pending line carries no status or duration to summarise.
+same facet semantics and the same status classification. One Android-only wrinkle in the pending
+path: a pending entry *is* written to SQLite immediately and updated in place when it completes
+(iOS drops pending entries at save time instead), because a request that was in flight when the app
+died is the strongest crash suspect there is. The Chucker-style notification is still updated only
+on completion, since a pending line carries no status or duration to summarise.
 
-Two Android-only additions: an `ApiLogInterceptor` for OkHttp (the idiomatic auto-capture path that
-replaces Chucker; iOS captures manually only — on Android it is also what gives you pending rows for
-free), and opt-in disk persistence. Storage is in-memory on
-both platforms and cleared on process death unless `ApiLogKitConfig.persistence` is set. Export
-formats are identical either way.
+Three Android-only additions: an `ApiLogInterceptor` for OkHttp (the idiomatic auto-capture path
+that replaces Chucker; iOS captures manually only — on Android it is also what gives you pending
+rows for free), opt-in disk persistence, and crash capture, which pins an uncaught exception to the
+exchange that was live when it happened. Storage is in-memory on both platforms and cleared on
+process death unless `ApiLogKitConfig.persistence` is set. Export formats are identical either way —
+the crash block only appears on an entry that carries a crash, which iOS never produces.
 
 Not yet ported from iOS: the **3rd-party tracker** bucket, which captures `URLSession` traffic from
 closed-source SDKs.

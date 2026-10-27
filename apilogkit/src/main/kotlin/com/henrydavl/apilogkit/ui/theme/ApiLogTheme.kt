@@ -41,6 +41,16 @@ object ApiLogColors {
 
     /** Tint for the "request in flight" banner on the detail screen. */
     val PendingBannerBackground = Color(0x24616161)
+
+    /**
+     * Background of the *CRASH* badge. A deeper red than [statusColor]'s 4xx/5xx
+     * so a crash-linked row stands out even in a list full of failed calls —
+     * which is exactly the list you are looking at when debugging one.
+     */
+    val CrashBadgeBackground = Color(0xFFB71C1C)
+
+    /** Tint for the "previous session crashed" banner. */
+    val CrashBannerBackground = Color(0x1FC62828)
 }
 
 private val LightColors = lightColorScheme()
